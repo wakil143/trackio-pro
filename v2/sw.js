@@ -1,10 +1,10 @@
-const CACHE_NAME = "trackio-pro-v2-shell-v1";
+const CACHE_NAME = "trackio-pro-v2-shell-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.json",
-  "../icon-192.png",
-  "../icon-512.png"
+  "../icon-192.png?v=2",
+  "../icon-512.png?v=2"
 ];
 
 self.addEventListener("install", (event) => {
