@@ -1769,7 +1769,7 @@
 
         window.onload = function() {
             loadState();
-            checkAndUpdateStreak();
+
             renderExamTabs();
             renderWorkflowLegend();
             renderSubjectTabs();
@@ -2072,6 +2072,30 @@
         }
 
 
+
+        function saveEditedExam() {
+            const input = document.getElementById("editExamNameInput");
+            if (!input) return;
+            const name = input.value.trim();
+            if (!name) {
+                showToast("Exam name cannot be empty.", "warning");
+                input.focus();
+                return;
+            }
+            const icon = autoAssignIcon(name, 'exam');
+
+            const exam = examsList.find(e => e.id === currentEditingExamId);
+            if (exam) {
+                exam.name = name;
+                exam.icon = icon;
+            }
+
+            saveState();
+            renderExamTabs();
+            renderBreadcrumbs();
+            closeEditExamModal();
+            showToast(`Exam updated to "${name}".`, "success");
+        }
 
         function deleteExam(examId, event) {
             if (event && event.stopPropagation) event.stopPropagation();
@@ -2464,6 +2488,317 @@
         }
 
         // --- Safe Stubs for Removed Stage Builder ---
+
+        function openDashboardDetailModal(type) {
+            const modal = document.getElementById("dashboardDetailModal");
+            const titleEl = document.getElementById("dashboardDetailTitle");
+            const subEl = document.getElementById("dashboardDetailSubtitle");
+            const iconEl = document.getElementById("dashboardDetailIcon");
+            const contentEl = document.getElementById("dashboardDetailContent");
+            if (!modal || !contentEl) return;
+
+            const subjects = Object.values(appState || {});
+            const activeExam = examsList.find(e => e.id === activeExamId);
+            const examLabel = activeExam ? activeExam.name : "Active Exam";
+
+            let html = "";
+            if (type === 'syllabus') {
+                titleEl.innerText = "Syllabus Progress Breakdown";
+                subEl.innerText = `All subjects in ${examLabel}`;
+                iconEl.className = "fa-solid fa-chart-pie text-sm text-sky-500";
+                
+                let totalSteps = 0, completedSteps = 0;
+                let subBreakdown = [];
+                subjects.forEach(sub => {
+                    let sTotal = 0, sDone = 0;
+                    (sub.chapters || []).forEach(chap => {
+                        sTotal += STAGES.length;
+                        sDone += STAGES.filter(st => chap.stages && chap.stages[st.id]).length;
+                    });
+                    totalSteps += sTotal;
+                    completedSteps += sDone;
+                    const pct = sTotal > 0 ? Math.round((sDone / sTotal) * 100) : 0;
+                    subBreakdown.push({ sub, total: sTotal, done: sDone, pct });
+                });
+                const overallPct = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+
+                html = `
+                    <div class="p-4 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-center space-y-1">
+                        <span class="text-xs font-bold text-sky-600 dark:text-sky-400 uppercase tracking-wider">Overall Syllabus Completion</span>
+                        <div class="text-3xl font-black text-slate-900 dark:text-white">${overallPct}%</div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${completedSteps} of ${totalSteps} workflow steps completed across all subjects</p>
+                        <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-2 overflow-hidden">
+                            <div class="bg-gradient-to-r from-sky-500 to-emerald-400 h-full rounded-full" style="width: ${overallPct}%"></div>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Subject-Wise Progress</h4>
+                        ${subBreakdown.length === 0 ? '<p class="text-xs text-slate-400 italic">No subjects added yet.</p>' : subBreakdown.map(b => `
+                            <div class="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between text-xs font-bold mb-1">
+                                        <span class="truncate text-slate-900 dark:text-white">${escapeHtml(b.sub.name)}</span>
+                                        <span class="text-sky-600 dark:text-sky-400">${b.pct}%</span>
+                                    </div>
+                                    <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                        <div class="bg-sky-500 h-full rounded-full" style="width: ${b.pct}%"></div>
+                                    </div>
+                                    <span class="text-[10px] text-slate-400 mt-0.5 inline-block">${b.done}/${b.total} steps (${(b.sub.chapters || []).length} chapters)</span>
+                                </div>
+                                <button type="button" onclick="closeDashboardDetailModal(); switchSubject('${b.sub.id}');" class="px-2.5 py-1 text-[11px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 rounded-lg transition-colors shrink-0 cursor-pointer">
+                                    View
+                                </button>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else if (type === 'completed') {
+                titleEl.innerText = "Chapters Completed Breakdown";
+                subEl.innerText = `Chapters with all ${STAGES.length} workflow stages done`;
+                iconEl.className = "fa-solid fa-circle-check text-sm text-emerald-500";
+
+                let totalChaps = 0, completedChaps = 0;
+                let subBreakdown = [];
+                subjects.forEach(sub => {
+                    let cCount = (sub.chapters || []).length;
+                    let cDone = (sub.chapters || []).filter(chap => STAGES.filter(st => chap.stages && chap.stages[st.id]).length === STAGES.length).length;
+                    totalChaps += cCount;
+                    completedChaps += cDone;
+                    const pct = cCount > 0 ? Math.round((cDone / cCount) * 100) : 0;
+                    subBreakdown.push({ sub, count: cCount, done: cDone, pct });
+                });
+                const overallPct = totalChaps > 0 ? Math.round((completedChaps / totalChaps) * 100) : 0;
+
+                html = `
+                    <div class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-1">
+                        <span class="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Total Chapters Mastered</span>
+                        <div class="text-3xl font-black text-slate-900 dark:text-white">${completedChaps} / ${totalChaps}</div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${overallPct}% of all chapters have completed all 7 stages</p>
+                        <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-2 overflow-hidden">
+                            <div class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full" style="width: ${overallPct}%"></div>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Subject-Wise Completion</h4>
+                            <button type="button" onclick="closeDashboardDetailModal(); setFilter('completed');" class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer">Filter Active to Completed</button>
+                        </div>
+                        ${subBreakdown.length === 0 ? '<p class="text-xs text-slate-400 italic">No subjects added yet.</p>' : subBreakdown.map(b => `
+                            <div class="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between text-xs font-bold mb-1">
+                                        <span class="truncate text-slate-900 dark:text-white">${escapeHtml(b.sub.name)}</span>
+                                        <span class="text-emerald-600 dark:text-emerald-400">${b.done}/${b.count} (${b.pct}%)</span>
+                                    </div>
+                                    <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                        <div class="bg-emerald-500 h-full rounded-full" style="width: ${b.pct}%"></div>
+                                    </div>
+                                </div>
+                                <button type="button" onclick="closeDashboardDetailModal(); switchSubject('${b.sub.id}'); setFilter('completed');" class="px-2.5 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg transition-colors shrink-0 cursor-pointer">
+                                    View Completed
+                                </button>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else if (type === 'performance') {
+                titleEl.innerText = "Subject Performance & Readiness";
+                subEl.innerText = "Average test scores across subjects";
+                iconEl.className = "fa-solid fa-chart-column text-sm text-indigo-500";
+
+                let subBreakdown = [];
+                let totalScored = 0, totalScoreSum = 0;
+                subjects.forEach(sub => {
+                    let scCount = 0, scSum = 0;
+                    (sub.chapters || []).forEach(chap => {
+                        const stats = getChapterTestStats(chap);
+                        if (stats.avgScore !== null) {
+                            scCount++;
+                            scSum += stats.avgScore;
+                        } else if (chap.score !== "" && chap.score !== undefined && !isNaN(parseFloat(chap.score))) {
+                            scCount++;
+                            scSum += parseFloat(chap.score);
+                        }
+                    });
+                    const avg = scCount > 0 ? Math.round(scSum / scCount) : null;
+                    if (scCount > 0) {
+                        totalScored += scCount;
+                        totalScoreSum += scSum;
+                    }
+                    subBreakdown.push({ sub, scored: scCount, total: (sub.chapters || []).length, avg });
+                });
+                const overallAvg = totalScored > 0 ? Math.round(totalScoreSum / totalScored) : 0;
+
+                html = `
+                    <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-center space-y-1">
+                        <span class="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Overall Test Performance</span>
+                        <div class="text-3xl font-black text-slate-900 dark:text-white">${totalScored > 0 ? overallAvg + '%' : 'N/A'}</div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${totalScored} chapters tested across all subjects</p>
+                        <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-2 overflow-hidden">
+                            <div class="bg-gradient-to-r from-indigo-500 to-purple-400 h-full rounded-full" style="width: ${overallAvg}%"></div>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Subject-Wise Performance</h4>
+                        ${subBreakdown.length === 0 ? '<p class="text-xs text-slate-400 italic">No subjects added yet.</p>' : subBreakdown.map(b => `
+                            <div class="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between text-xs font-bold mb-1">
+                                        <span class="truncate text-slate-900 dark:text-white">${escapeHtml(b.sub.name)}</span>
+                                        <span class="${b.avg !== null ? (b.avg >= 80 ? 'text-emerald-500' : b.avg >= 60 ? 'text-amber-500' : 'text-rose-500') : 'text-slate-400'}">${b.avg !== null ? b.avg + '%' : 'No tests'}</span>
+                                    </div>
+                                    <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                        <div class="bg-indigo-500 h-full rounded-full" style="width: ${b.avg || 0}%"></div>
+                                    </div>
+                                    <span class="text-[10px] text-slate-400 mt-0.5 inline-block">${b.scored}/${b.total} chapters scored</span>
+                                </div>
+                                <button type="button" onclick="closeDashboardDetailModal(); switchSubject('${b.sub.id}');" class="px-2.5 py-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 rounded-lg transition-colors shrink-0 cursor-pointer">
+                                    View
+                                </button>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else if (type === 'mock_tests') {
+                titleEl.innerText = "Mock Test Attempts History";
+                subEl.innerText = "Comprehensive test attempts across all chapters";
+                iconEl.className = "fa-solid fa-chart-line text-sm text-sky-500";
+
+                let totalAttempts = 0, totalQuestions = 0, totalCorrect = 0, bestScore = null;
+                let attemptsList = [];
+                subjects.forEach(sub => {
+                    (sub.chapters || []).forEach(chap => {
+                        if (Array.isArray(chap.testAttempts) && chap.testAttempts.length > 0) {
+                            chap.testAttempts.forEach(att => {
+                                totalAttempts++;
+                                totalQuestions += (att.questionsAttempted || 0);
+                                totalCorrect += (att.questionsCorrect || 0);
+                                if (bestScore === null || att.scorePct > bestScore) bestScore = att.scorePct;
+                                attemptsList.push({ ...att, chapName: chap.name, subName: sub.name, subId: sub.id, chapId: chap.id });
+                            });
+                        } else if (chap.score !== "" && chap.score !== undefined && !isNaN(parseFloat(chap.score))) {
+                            totalAttempts++;
+                            const sc = parseFloat(chap.score);
+                            const qAtt = parseInt(chap.questionsAttempted, 10) || 0;
+                            const qCorr = parseInt(chap.questionsCorrect, 10) || 0;
+                            totalQuestions += qAtt;
+                            totalCorrect += qCorr;
+                            if (bestScore === null || sc > bestScore) bestScore = sc;
+                            attemptsList.push({
+                                id: 'legacy_' + chap.id,
+                                dateStr: 'Previous Entry',
+                                marksObtained: sc,
+                                maxMarks: 100,
+                                scorePct: sc,
+                                questionsAttempted: qAtt,
+                                questionsCorrect: qCorr,
+                                accuracyPct: qAtt > 0 ? Math.round((qCorr / qAtt) * 100) : null,
+                                chapName: chap.name,
+                                subName: sub.name,
+                                subId: sub.id,
+                                chapId: chap.id
+                            });
+                        }
+                    });
+                });
+                const overallAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
+                attemptsList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+                html = `
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                        <div class="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20">
+                            <span class="text-[10px] font-bold text-sky-600 dark:text-sky-400 uppercase">Attempts</span>
+                            <div class="text-xl font-black text-slate-900 dark:text-white mt-0.5">${totalAttempts}</div>
+                        </div>
+                        <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+                            <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase">Questions</span>
+                            <div class="text-xl font-black text-slate-900 dark:text-white mt-0.5">${totalQuestions}</div>
+                        </div>
+                        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                            <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Accuracy</span>
+                            <div class="text-xl font-black text-slate-900 dark:text-white mt-0.5">${totalQuestions > 0 ? overallAccuracy + '%' : 'N/A'}</div>
+                        </div>
+                        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                            <span class="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase">Best Score</span>
+                            <div class="text-xl font-black text-slate-900 dark:text-white mt-0.5">${bestScore !== null ? bestScore + '%' : 'N/A'}</div>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Recorded Attempts (${attemptsList.length})</h4>
+                        ${attemptsList.length === 0 ? '<p class="text-xs text-slate-400 italic">No mock test attempts recorded yet. Expand any chapter card to record an attempt.</p>' : `
+                            <div class="space-y-2 max-h-64 overflow-y-auto no-scrollbar pr-0.5">
+                                ${attemptsList.slice(0, 30).map(att => `
+                                    <div class="p-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-2 text-xs">
+                                        <div class="min-w-0 flex-1">
+                                            <div class="font-bold text-slate-900 dark:text-white truncate">${escapeHtml(att.chapName)}</div>
+                                            <div class="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                                <span>${escapeHtml(att.subName)}</span>
+                                                <span>•</span>
+                                                <span>${att.dateStr || 'Recent'}</span>
+                                            </div>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <span class="inline-block px-2 py-0.5 rounded text-xs font-extrabold ${att.scorePct >= 80 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : att.scorePct >= 60 ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'}">
+                                                ${att.scorePct}% (${att.marksObtained}/${att.maxMarks})
+                                            </span>
+                                            ${att.questionsAttempted ? `<div class="text-[9px] text-slate-400 mt-0.5">${att.questionsCorrect}/${att.questionsAttempted} Qs (${att.accuracyPct || 0}% Acc)</div>` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                `;
+            } else if (type === 'weak') {
+                titleEl.innerText = "Weak / Priority Chapters";
+                subEl.innerText = "Chapters marked for extra practice & reinforcement";
+                iconEl.className = "fa-solid fa-star text-sm text-amber-500";
+
+                let weakList = [];
+                subjects.forEach(sub => {
+                    (sub.chapters || []).forEach(chap => {
+                        if (chap.weak) {
+                            weakList.push({ chap, sub });
+                        }
+                    });
+                });
+
+                html = `
+                    <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center space-y-1">
+                        <span class="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Priority Attention</span>
+                        <div class="text-3xl font-black text-slate-900 dark:text-white">${weakList.length}</div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${weakList.length} chapters starred as requiring extra revision</p>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Weak Chapters List (${weakList.length})</h4>
+                            <button type="button" onclick="closeDashboardDetailModal(); setFilter('weak');" class="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">Filter Active to Weak</button>
+                        </div>
+                        ${weakList.length === 0 ? '<p class="text-xs text-slate-400 italic">No weak chapters starred. Tap the star icon on any chapter to mark it as weak.</p>' : `
+                            <div class="space-y-1.5 max-h-64 overflow-y-auto no-scrollbar pr-0.5">
+                                ${weakList.map(item => `
+                                    <div class="p-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-amber-500/30 flex items-center justify-between gap-2 text-xs">
+                                        <div class="min-w-0 flex-1">
+                                            <div class="font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                                                <i class="fa-solid fa-star text-amber-500 text-xs"></i>
+                                                <span>${escapeHtml(item.chap.name)}</span>
+                                            </div>
+                                            <span class="text-[10px] text-slate-400 mt-0.5 inline-block">${escapeHtml(item.sub.name)}</span>
+                                        </div>
+                                        <button type="button" onclick="closeDashboardDetailModal(); switchSubject('${item.sub.id}'); setFilter('weak');" class="px-2.5 py-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors shrink-0 cursor-pointer">
+                                            Go to Chapter
+                                        </button>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                `;
+            }
+
+            contentEl.innerHTML = html;
+            modal.classList.remove("hidden");
+        }
 
         function closeDashboardDetailModal() {
             const modal = document.getElementById("dashboardDetailModal");
@@ -6806,6 +7141,17 @@
 
 
         function closeSettingsModal() { document.getElementById("settingsModal").classList.add("hidden"); }
+
+        function openAddModal() {
+            const subject = appState[activeSubjectId];
+            if (!subject) {
+                showToast("Select or create an active subject first!", "warning");
+                return;
+            }
+            document.getElementById("modalSubjectName").value = subject.name;
+            document.getElementById("newChapterInput").value = "";
+            document.getElementById("addModal").classList.remove("hidden");
+        }
 
         function closeAddModal() { document.getElementById("addModal").classList.add("hidden"); }
         function saveCustomChapter() {
