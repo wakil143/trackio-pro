@@ -1907,9 +1907,6 @@
             if (label) label.innerText = icon;
         }
 
-        function resetNewExamIcon() {
-            setNewExamIcon("fa-bolt");
-        }
 
         function saveNewExam() {
             const name = document.getElementById("newExamNameInput").value.trim();
@@ -2026,13 +2023,6 @@
             deleteActiveSubject();
         }
 
-        function openManageActiveExamModal() {
-            if (!activeExamId || !examsList || examsList.length === 0) {
-                showToast("No active exam selected to manage.", "warning");
-                return;
-            }
-            openEditExamModal(activeExamId);
-        }
 
         function openManageExamsModal(targetExamId = null) {
             if (!examsList || examsList.length === 0) {
@@ -2081,47 +2071,7 @@
             if (nameInput) nameInput.value = exam.name;
         }
 
-        function renderManageExamsList() {}
 
-        function addNewExamFromManage() {}
-
-        function moveActiveExamOrder(direction) {}
-
-        function moveExamOrder(index, direction) {}
-
-        function setEditExamIcon(icon) {}
-        function resetEditExamIcon() {}
-
-        function saveEditedExam() {
-            const input = document.getElementById("editExamNameInput");
-            if (!input) return;
-            const name = input.value.trim();
-            if (!name) {
-                showToast("Exam name cannot be empty.", "warning");
-                input.focus();
-                return;
-            }
-            const icon = autoAssignIcon(name, 'exam');
-
-            const exam = examsList.find(e => e.id === currentEditingExamId);
-            if (exam) {
-                exam.name = name;
-                exam.icon = icon;
-            }
-
-            saveState();
-            renderExamTabs();
-            renderBreadcrumbs();
-            closeEditExamModal();
-            showToast(`Exam updated to "${name}".`, "success");
-        }
-
-        function deleteCurrentEditedExam() {
-            if (!currentEditingExamId) return;
-            const targetId = currentEditingExamId;
-            closeEditExamModal();
-            deleteExam(targetId);
-        }
 
         function deleteExam(examId, event) {
             if (event && event.stopPropagation) event.stopPropagation();
@@ -2514,320 +2464,6 @@
         }
 
         // --- Safe Stubs for Removed Stage Builder ---
-        function openCustomizeStagesModal() {}
-        function closeCustomizeStagesModal() {}
-
-        // --- Dashboard Drilldown Detail Modal Controller ---
-        function openDashboardDetailModal(type) {
-            const modal = document.getElementById("dashboardDetailModal");
-            const titleEl = document.getElementById("dashboardDetailTitle");
-            const subEl = document.getElementById("dashboardDetailSubtitle");
-            const iconEl = document.getElementById("dashboardDetailIcon");
-            const contentEl = document.getElementById("dashboardDetailContent");
-            if (!modal || !contentEl) return;
-
-            const subjects = Object.values(appState || {});
-            const activeExam = examsList.find(e => e.id === activeExamId);
-            const examLabel = activeExam ? activeExam.name : "Active Exam";
-
-            let html = "";
-            if (type === 'syllabus') {
-                titleEl.innerText = "Syllabus Progress Breakdown";
-                subEl.innerText = `All subjects in ${examLabel}`;
-                iconEl.className = "fa-solid fa-chart-pie text-sm text-sky-500";
-                
-                let totalSteps = 0, completedSteps = 0;
-                let subBreakdown = [];
-                subjects.forEach(sub => {
-                    let sTotal = 0, sDone = 0;
-                    (sub.chapters || []).forEach(chap => {
-                        sTotal += STAGES.length;
-                        sDone += STAGES.filter(st => chap.stages && chap.stages[st.id]).length;
-                    });
-                    totalSteps += sTotal;
-                    completedSteps += sDone;
-                    const pct = sTotal > 0 ? Math.round((sDone / sTotal) * 100) : 0;
-                    subBreakdown.push({ sub, total: sTotal, done: sDone, pct });
-                });
-                const overallPct = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
-
-                html = `
-                    <div class="p-4 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-center space-y-1">
-                        <span class="text-xs font-bold text-sky-600 dark:text-sky-400 uppercase tracking-wider">Overall Syllabus Completion</span>
-                        <div class="text-3xl font-black text-slate-900 dark:text-white">${overallPct}%</div>
-                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${completedSteps} of ${totalSteps} workflow steps completed across all subjects</p>
-                        <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-2 overflow-hidden">
-                            <div class="bg-gradient-to-r from-sky-500 to-emerald-400 h-full rounded-full" style="width: ${overallPct}%"></div>
-                        </div>
-                    </div>
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Subject-Wise Progress</h4>
-                        ${subBreakdown.length === 0 ? '<p class="text-xs text-slate-400 italic">No subjects added yet.</p>' : subBreakdown.map(b => `
-                            <div class="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-center justify-between text-xs font-bold mb-1">
-                                        <span class="truncate text-slate-900 dark:text-white">${escapeHtml(b.sub.name)}</span>
-                                        <span class="text-sky-600 dark:text-sky-400">${b.pct}%</span>
-                                    </div>
-                                    <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                                        <div class="bg-sky-500 h-full rounded-full" style="width: ${b.pct}%"></div>
-                                    </div>
-                                    <span class="text-[10px] text-slate-400 mt-0.5 inline-block">${b.done}/${b.total} steps (${(b.sub.chapters || []).length} chapters)</span>
-                                </div>
-                                <button type="button" onclick="closeDashboardDetailModal(); switchSubject('${b.sub.id}');" class="px-2.5 py-1 text-[11px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 rounded-lg transition-colors shrink-0 cursor-pointer">
-                                    View
-                                </button>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            } else if (type === 'completed') {
-                titleEl.innerText = "Chapters Completed Breakdown";
-                subEl.innerText = `Chapters with all ${STAGES.length} workflow stages done`;
-                iconEl.className = "fa-solid fa-circle-check text-sm text-emerald-500";
-
-                let totalChaps = 0, completedChaps = 0;
-                let subBreakdown = [];
-                subjects.forEach(sub => {
-                    let cCount = (sub.chapters || []).length;
-                    let cDone = (sub.chapters || []).filter(chap => STAGES.filter(st => chap.stages && chap.stages[st.id]).length === STAGES.length).length;
-                    totalChaps += cCount;
-                    completedChaps += cDone;
-                    const pct = cCount > 0 ? Math.round((cDone / cCount) * 100) : 0;
-                    subBreakdown.push({ sub, count: cCount, done: cDone, pct });
-                });
-                const overallPct = totalChaps > 0 ? Math.round((completedChaps / totalChaps) * 100) : 0;
-
-                html = `
-                    <div class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-1">
-                        <span class="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Total Chapters Mastered</span>
-                        <div class="text-3xl font-black text-slate-900 dark:text-white">${completedChaps} / ${totalChaps}</div>
-                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${overallPct}% of all chapters have completed all 7 stages</p>
-                        <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-2 overflow-hidden">
-                            <div class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full" style="width: ${overallPct}%"></div>
-                        </div>
-                    </div>
-                    <div class="space-y-2">
-                        <div class="flex items-center justify-between">
-                            <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Subject-Wise Completion</h4>
-                            <button type="button" onclick="closeDashboardDetailModal(); setFilter('completed');" class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer">Filter Active to Completed</button>
-                        </div>
-                        ${subBreakdown.length === 0 ? '<p class="text-xs text-slate-400 italic">No subjects added yet.</p>' : subBreakdown.map(b => `
-                            <div class="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-center justify-between text-xs font-bold mb-1">
-                                        <span class="truncate text-slate-900 dark:text-white">${escapeHtml(b.sub.name)}</span>
-                                        <span class="text-emerald-600 dark:text-emerald-400">${b.done}/${b.count} (${b.pct}%)</span>
-                                    </div>
-                                    <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                                        <div class="bg-emerald-500 h-full rounded-full" style="width: ${b.pct}%"></div>
-                                    </div>
-                                </div>
-                                <button type="button" onclick="closeDashboardDetailModal(); switchSubject('${b.sub.id}'); setFilter('completed');" class="px-2.5 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg transition-colors shrink-0 cursor-pointer">
-                                    View Completed
-                                </button>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            } else if (type === 'performance') {
-                titleEl.innerText = "Subject Performance & Readiness";
-                subEl.innerText = "Average test scores across subjects";
-                iconEl.className = "fa-solid fa-chart-column text-sm text-indigo-500";
-
-                let subBreakdown = [];
-                let totalScored = 0, totalScoreSum = 0;
-                subjects.forEach(sub => {
-                    let scCount = 0, scSum = 0;
-                    (sub.chapters || []).forEach(chap => {
-                        const stats = getChapterTestStats(chap);
-                        if (stats.avgScore !== null) {
-                            scCount++;
-                            scSum += stats.avgScore;
-                        } else if (chap.score !== "" && chap.score !== undefined && !isNaN(parseFloat(chap.score))) {
-                            scCount++;
-                            scSum += parseFloat(chap.score);
-                        }
-                    });
-                    const avg = scCount > 0 ? Math.round(scSum / scCount) : null;
-                    if (scCount > 0) {
-                        totalScored += scCount;
-                        totalScoreSum += scSum;
-                    }
-                    subBreakdown.push({ sub, scored: scCount, total: (sub.chapters || []).length, avg });
-                });
-                const overallAvg = totalScored > 0 ? Math.round(totalScoreSum / totalScored) : 0;
-
-                html = `
-                    <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-center space-y-1">
-                        <span class="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Overall Test Performance</span>
-                        <div class="text-3xl font-black text-slate-900 dark:text-white">${totalScored > 0 ? overallAvg + '%' : 'N/A'}</div>
-                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${totalScored} chapters tested across all subjects</p>
-                        <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-2 overflow-hidden">
-                            <div class="bg-gradient-to-r from-indigo-500 to-purple-400 h-full rounded-full" style="width: ${overallAvg}%"></div>
-                        </div>
-                    </div>
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Subject-Wise Performance</h4>
-                        ${subBreakdown.length === 0 ? '<p class="text-xs text-slate-400 italic">No subjects added yet.</p>' : subBreakdown.map(b => `
-                            <div class="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-center justify-between text-xs font-bold mb-1">
-                                        <span class="truncate text-slate-900 dark:text-white">${escapeHtml(b.sub.name)}</span>
-                                        <span class="${b.avg !== null ? (b.avg >= 80 ? 'text-emerald-500' : b.avg >= 60 ? 'text-amber-500' : 'text-rose-500') : 'text-slate-400'}">${b.avg !== null ? b.avg + '%' : 'No tests'}</span>
-                                    </div>
-                                    <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                                        <div class="bg-indigo-500 h-full rounded-full" style="width: ${b.avg || 0}%"></div>
-                                    </div>
-                                    <span class="text-[10px] text-slate-400 mt-0.5 inline-block">${b.scored}/${b.total} chapters scored</span>
-                                </div>
-                                <button type="button" onclick="closeDashboardDetailModal(); switchSubject('${b.sub.id}');" class="px-2.5 py-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 rounded-lg transition-colors shrink-0 cursor-pointer">
-                                    View
-                                </button>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            } else if (type === 'mock_tests') {
-                titleEl.innerText = "Mock Test Attempts History";
-                subEl.innerText = "Comprehensive test attempts across all chapters";
-                iconEl.className = "fa-solid fa-chart-line text-sm text-sky-500";
-
-                let totalAttempts = 0, totalQuestions = 0, totalCorrect = 0, bestScore = null;
-                let attemptsList = [];
-                subjects.forEach(sub => {
-                    (sub.chapters || []).forEach(chap => {
-                        if (Array.isArray(chap.testAttempts) && chap.testAttempts.length > 0) {
-                            chap.testAttempts.forEach(att => {
-                                totalAttempts++;
-                                totalQuestions += (att.questionsAttempted || 0);
-                                totalCorrect += (att.questionsCorrect || 0);
-                                if (bestScore === null || att.scorePct > bestScore) bestScore = att.scorePct;
-                                attemptsList.push({ ...att, chapName: chap.name, subName: sub.name, subId: sub.id, chapId: chap.id });
-                            });
-                        } else if (chap.score !== "" && chap.score !== undefined && !isNaN(parseFloat(chap.score))) {
-                            totalAttempts++;
-                            const sc = parseFloat(chap.score);
-                            const qAtt = parseInt(chap.questionsAttempted, 10) || 0;
-                            const qCorr = parseInt(chap.questionsCorrect, 10) || 0;
-                            totalQuestions += qAtt;
-                            totalCorrect += qCorr;
-                            if (bestScore === null || sc > bestScore) bestScore = sc;
-                            attemptsList.push({
-                                id: 'legacy_' + chap.id,
-                                dateStr: 'Previous Entry',
-                                marksObtained: sc,
-                                maxMarks: 100,
-                                scorePct: sc,
-                                questionsAttempted: qAtt,
-                                questionsCorrect: qCorr,
-                                accuracyPct: qAtt > 0 ? Math.round((qCorr / qAtt) * 100) : null,
-                                chapName: chap.name,
-                                subName: sub.name,
-                                subId: sub.id,
-                                chapId: chap.id
-                            });
-                        }
-                    });
-                });
-                const overallAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
-                attemptsList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-                html = `
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-                        <div class="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20">
-                            <span class="text-[10px] font-bold text-sky-600 dark:text-sky-400 uppercase">Attempts</span>
-                            <div class="text-xl font-black text-slate-900 dark:text-white mt-0.5">${totalAttempts}</div>
-                        </div>
-                        <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-                            <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase">Questions</span>
-                            <div class="text-xl font-black text-slate-900 dark:text-white mt-0.5">${totalQuestions}</div>
-                        </div>
-                        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                            <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Accuracy</span>
-                            <div class="text-xl font-black text-slate-900 dark:text-white mt-0.5">${totalQuestions > 0 ? overallAccuracy + '%' : 'N/A'}</div>
-                        </div>
-                        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                            <span class="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase">Best Score</span>
-                            <div class="text-xl font-black text-slate-900 dark:text-white mt-0.5">${bestScore !== null ? bestScore + '%' : 'N/A'}</div>
-                        </div>
-                    </div>
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Recorded Attempts (${attemptsList.length})</h4>
-                        ${attemptsList.length === 0 ? '<p class="text-xs text-slate-400 italic">No mock test attempts recorded yet. Expand any chapter card to record an attempt.</p>' : `
-                            <div class="space-y-2 max-h-64 overflow-y-auto no-scrollbar pr-0.5">
-                                ${attemptsList.slice(0, 30).map(att => `
-                                    <div class="p-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-2 text-xs">
-                                        <div class="min-w-0 flex-1">
-                                            <div class="font-bold text-slate-900 dark:text-white truncate">${escapeHtml(att.chapName)}</div>
-                                            <div class="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                                                <span>${escapeHtml(att.subName)}</span>
-                                                <span>•</span>
-                                                <span>${att.dateStr || 'Recent'}</span>
-                                            </div>
-                                        </div>
-                                        <div class="text-right shrink-0">
-                                            <span class="inline-block px-2 py-0.5 rounded text-xs font-extrabold ${att.scorePct >= 80 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : att.scorePct >= 60 ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'}">
-                                                ${att.scorePct}% (${att.marksObtained}/${att.maxMarks})
-                                            </span>
-                                            ${att.questionsAttempted ? `<div class="text-[9px] text-slate-400 mt-0.5">${att.questionsCorrect}/${att.questionsAttempted} Qs (${att.accuracyPct || 0}% Acc)</div>` : ''}
-                                        </div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        `}
-                    </div>
-                `;
-            } else if (type === 'weak') {
-                titleEl.innerText = "Weak / Priority Chapters";
-                subEl.innerText = "Chapters marked for extra practice & reinforcement";
-                iconEl.className = "fa-solid fa-star text-sm text-amber-500";
-
-                let weakList = [];
-                subjects.forEach(sub => {
-                    (sub.chapters || []).forEach(chap => {
-                        if (chap.weak) {
-                            weakList.push({ chap, sub });
-                        }
-                    });
-                });
-
-                html = `
-                    <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center space-y-1">
-                        <span class="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Priority Attention</span>
-                        <div class="text-3xl font-black text-slate-900 dark:text-white">${weakList.length}</div>
-                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${weakList.length} chapters starred as requiring extra revision</p>
-                    </div>
-                    <div class="space-y-2">
-                        <div class="flex items-center justify-between">
-                            <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Weak Chapters List (${weakList.length})</h4>
-                            <button type="button" onclick="closeDashboardDetailModal(); setFilter('weak');" class="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">Filter Active to Weak</button>
-                        </div>
-                        ${weakList.length === 0 ? '<p class="text-xs text-slate-400 italic">No weak chapters starred. Tap the star icon on any chapter to mark it as weak.</p>' : `
-                            <div class="space-y-1.5 max-h-64 overflow-y-auto no-scrollbar pr-0.5">
-                                ${weakList.map(item => `
-                                    <div class="p-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-amber-500/30 flex items-center justify-between gap-2 text-xs">
-                                        <div class="min-w-0 flex-1">
-                                            <div class="font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
-                                                <i class="fa-solid fa-star text-amber-500 text-xs"></i>
-                                                <span>${escapeHtml(item.chap.name)}</span>
-                                            </div>
-                                            <span class="text-[10px] text-slate-400 mt-0.5 inline-block">${escapeHtml(item.sub.name)}</span>
-                                        </div>
-                                        <button type="button" onclick="closeDashboardDetailModal(); switchSubject('${item.sub.id}'); setFilter('weak');" class="px-2.5 py-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors shrink-0 cursor-pointer">
-                                            Go to Chapter
-                                        </button>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        `}
-                    </div>
-                `;
-            }
-
-            contentEl.innerHTML = html;
-            modal.classList.remove("hidden");
-        }
 
         function closeDashboardDetailModal() {
             const modal = document.getElementById("dashboardDetailModal");
@@ -3120,23 +2756,6 @@
             renderChapters();
         }
 
-        function addNewStageItem() {
-            syncStageBuilderInputsToMemory();
-            const newId = "s_" + Date.now();
-            STAGES.push({
-                id: newId,
-                title: "New Custom Stage",
-                icon: "fa-circle-check",
-                color: "text-sky-500 dark:text-sky-400"
-            });
-            localStorage.setItem(STAGES_KEY, JSON.stringify(STAGES));
-            saveToFirebase();
-            renderStageBuilderList();
-            if (typeof renderSettingsStages === 'function') renderSettingsStages();
-            renderWorkflowLegend();
-            renderChapters();
-            showToast("Added new workflow stage.", "success");
-        }
 
         function removeStageItem(idx) {
             syncStageBuilderInputsToMemory();
@@ -3207,38 +2826,6 @@
             );
         }
 
-        function saveCustomStages() {
-            const updated = [];
-            for (let i = 0; i < STAGES.length; i++) {
-                const titleVal = document.getElementById(`stage_title_${i}`)?.value.trim() || STAGES[i].title;
-                const iconVal = document.getElementById(`stage_icon_${i}`)?.value.trim() || STAGES[i].icon;
-                updated.push({
-                    id: STAGES[i].id,
-                    title: titleVal,
-                    icon: iconVal,
-                    color: STAGES[i].color || "text-sky-500 dark:text-sky-400"
-                });
-            }
-            STAGES = updated;
-
-            // Ensure all chapters have these stages setup
-            Object.values(appState).forEach(sub => {
-                sub.chapters.forEach(chap => {
-                    if (!chap.stages) chap.stages = {};
-                    STAGES.forEach(st => {
-                        if (chap.stages[st.id] === undefined) {
-                            chap.stages[st.id] = false;
-                        }
-                    });
-                });
-            });
-
-            saveState();
-            renderWorkflowLegend();
-            renderChapters();
-            closeCustomizeStagesModal();
-            showToast("Stages config saved! Progress percentage calculations have auto-adjusted.", "success");
-        }
 
         // --- User-Friendly Icon Picker & Library State & Logic ---
         const RECENT_EMOJIS_KEY = "trackio_recent_emojis_v1";
@@ -3377,9 +2964,6 @@
             if (modal) modal.classList.remove("hidden");
         }
 
-        function openIconPickerForExam(targetMode, initialTab = "emoji") {
-            openIconPickerFor(targetMode, initialTab);
-        }
 
         function openIconPickerFor(targetMode, initialTab = "emoji") {
             activeIconPickerTarget = { type: targetMode, id: currentEditingExamId };
@@ -3549,10 +3133,6 @@
             } catch (e) {}
         }
 
-        function clearRecentEmojis() {
-            localStorage.removeItem(RECENT_EMOJIS_KEY);
-            renderRecentEmojis();
-        }
 
         function renderRecentEmojis() {
             const container = document.getElementById("pickerRecentEmojiGrid");
@@ -3571,18 +3151,6 @@
             });
         }
 
-        function filterEmojiCategory(cat) {
-            currentEmojiCategory = cat;
-            ["all", "study", "writing", "testing", "revision", "completed", "pending", "time", "symbols"].forEach(c => {
-                const btn = document.getElementById(`emojiCat-${c}`);
-                if (btn) {
-                    btn.className = c === cat
-                        ? "px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-purple-600 text-white shrink-0 shadow-sm"
-                        : "px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 shrink-0";
-                }
-            });
-            renderEmojiGrid();
-        }
 
         function renderEmojiGrid() {
             const container = document.getElementById("pickerEmojiGrid");
@@ -3635,25 +3203,7 @@
             renderIconLibraryGrid(matched);
         }
 
-        function quickFilterIconTag(tag) {
-            const input = document.getElementById("iconLibrarySearchInput");
-            if (tag === "all") {
-                if (input) input.value = "";
-                searchIconLibrary("");
-            } else {
-                if (input) input.value = tag;
-                searchIconLibrary(tag);
-            }
-        }
 
-        function clearIconSearch() {
-            const input = document.getElementById("iconLibrarySearchInput");
-            if (input) {
-                input.value = "";
-                input.focus();
-            }
-            searchIconLibrary("");
-        }
 
         function renderIconLibraryGrid(items) {
             const container = document.getElementById("pickerIconGrid");
@@ -3685,52 +3235,6 @@
             });
         }
 
-        function applyPickerIcon() {
-            if (!activeIconPickerTarget) return;
-
-            if (activeIconPickerTarget.type === "stage") {
-                const idx = activeIconPickerTarget.index;
-                const iconInput = document.getElementById(`stage_icon_${idx}`);
-                const iconPreview = document.getElementById(`stage_icon_preview_${idx}`);
-                const iconLabel = document.getElementById(`stage_icon_label_${idx}`);
-
-                if (iconInput) iconInput.value = activePickerSelectedIcon;
-                if (iconPreview) iconPreview.innerHTML = renderIconHTML(activePickerSelectedIcon, "fa-circle-check", "text-purple-600 dark:text-purple-400 text-2xl");
-                if (iconLabel) iconLabel.innerText = activePickerSelectedIcon;
-
-                if (STAGES[idx]) {
-                    STAGES[idx].icon = activePickerSelectedIcon;
-                }
-            } else if (activeIconPickerTarget.type === "new_exam") {
-                setNewExamIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "edit_exam") {
-                setEditExamIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "new_subject") {
-                setNewSubjectIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "edit_subject") {
-                setEditSubjectIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "new_chapter") {
-                setNewChapterIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "edit_chapter") {
-                setEditChapterIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "studio_exam") {
-                setStudioExamIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "studio_subject") {
-                setStudioSubjectIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "studio_chapter") {
-                setStudioChapterIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "studio_new_subject") {
-                setStudioNewSubjectIcon(activePickerSelectedIcon);
-            } else if (activeIconPickerTarget.type === "studio_new_chapter") {
-                setStudioNewChapterIcon(activePickerSelectedIcon);
-            }
-
-            if (activePickerSelectedType === "emoji") {
-                recordRecentEmoji(activePickerSelectedIcon);
-            }
-
-            closeIconPicker();
-        }
 
         // --- Multi-File Syllabus Scanner State ---
         let uploadedFilesList = [];
@@ -4501,9 +4005,6 @@
         }
 
         // Backwards compatibility alias
-        function processGeminiVisionUpload(event) {
-            handleFilesSelected(event);
-        }
 
         function getBase64(file) {
             return new Promise((resolve, reject) => {
@@ -4514,17 +4015,6 @@
             });
         }
 
-        function toggleBulkSetupAccordion() {
-            const content = document.getElementById("bulkSetupContent");
-            const chevron = document.getElementById("bulkAccordionChevron");
-            if(content.classList.contains("hidden")) {
-                content.classList.remove("hidden");
-                chevron.classList.add("rotate-180");
-            } else {
-                content.classList.add("hidden");
-                chevron.classList.remove("rotate-180");
-            }
-        }
 
         function generateChaptersFromBulk() {
             const rawText = document.getElementById("bulkSyllabusInput").value.trim();
@@ -4566,27 +4056,6 @@
             showToast(`${addedCount} chapters successfully extracted & added into "${subject.name}"!`, "success");
         }
 
-        function toggleRearrangeMode() {
-            isRearrangeMode = !isRearrangeMode;
-            const btn = document.getElementById("rearrangeToggleBtn");
-            const icon = document.getElementById("rearrangeLockIcon");
-            const text = document.getElementById("rearrangeBtnText");
-            const modalOrderSection = document.getElementById("subjectOrderSection");
-
-            if (isRearrangeMode) {
-                btn.className = "px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-xs rounded-lg transition-all flex items-center gap-1.5 shadow border border-amber-400";
-                icon.className = "fa-solid fa-lock-open text-slate-900";
-                text.innerText = "Rearrange ON";
-                if(modalOrderSection) modalOrderSection.classList.remove("hidden");
-            } else {
-                btn.className = "px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 border border-slate-300 dark:border-slate-600";
-                icon.className = "fa-solid fa-lock text-amber-500";
-                text.innerText = "Rearrange Off";
-                if(modalOrderSection) modalOrderSection.classList.add("hidden");
-            }
-            renderSubjectTabs();
-            renderChapters();
-        }
 
         function renderSubjectTabs() {
             const container = document.getElementById("subjectTabs");
@@ -4662,21 +4131,6 @@
             renderSubjectTabs();
         }
 
-        function moveChapterOrder(chapterId, direction) {
-            const subject = appState[activeSubjectId];
-            if (!subject) return;
-            const idx = subject.chapters.findIndex(c => c.id === chapterId);
-            if (idx === -1) return;
-            const newIdx = idx + direction;
-            if (newIdx < 0 || newIdx >= subject.chapters.length) return;
-
-            const temp = subject.chapters[idx];
-            subject.chapters[idx] = subject.chapters[newIdx];
-            subject.chapters[newIdx] = temp;
-
-            saveState();
-            renderChapters();
-        }
 
         // --- Drag-and-Drop Reordering Completely Removed per Requirement 3 ---
         let activeDragSession = null;
@@ -4692,9 +4146,6 @@
             if (label) label.innerText = icon;
         }
 
-        function resetEditSubjectIcon() {
-            setEditSubjectIcon("fa-book");
-        }
 
         function setNewSubjectIcon(icon) {
             const input = document.getElementById("newSubjectSelectedIcon");
@@ -4705,9 +4156,6 @@
             if (label) label.innerText = icon;
         }
 
-        function resetNewSubjectIcon() {
-            setNewSubjectIcon("fa-book");
-        }
 
         function setEditChapterIcon(icon) {
             const input = document.getElementById("manageChapterSelectedIcon");
@@ -4718,9 +4166,6 @@
             if (label) label.innerText = icon;
         }
 
-        function resetEditChapterIcon() {
-            setEditChapterIcon("fa-book-bookmark");
-        }
 
         function setNewChapterIcon(icon) {
             const input = document.getElementById("newChapterSelectedIcon");
@@ -4731,9 +4176,6 @@
             if (label) label.innerText = icon;
         }
 
-        function resetNewChapterIcon() {
-            setNewChapterIcon("fa-book-bookmark");
-        }
 
         // --- Central Chapter Management Modal Controller ---
         let currentManagingChapterId = null;
@@ -4806,48 +4248,6 @@
             }
         }
 
-        function addNewChapterFromManage() {
-            const input = document.getElementById("manageNewChapInput");
-            if (!input) return;
-            const rawName = input.value.trim();
-            const name = rawName.replace(/^\d+[\.\)]\s+/, '') || rawName;
-            if (!name) {
-                showToast("Please enter a chapter name.", "warning");
-                input.focus();
-                return;
-            }
-            const sub = appState[activeSubjectId];
-            if (!sub) return;
-            if (!sub.chapters) sub.chapters = [];
-            const newId = "c_" + Date.now();
-            const sharedId = "shared_" + name.toLowerCase().replace(/[^a-z0-9]/g, "_");
-            let initialStages = {};
-            DEFAULT_WORKFLOW_STAGES.forEach(s => initialStages[s.id] = false);
-
-            const newChap = {
-                id: newId,
-                sharedId: sharedId,
-                name: name,
-                icon: autoAssignIcon(name, 'chapter'),
-                weak: false,
-                note: "",
-                score: "",
-                dueDate: "",
-                lastRevised: "",
-                stageTimestamps: {},
-                revisionCount: 0,
-                lastRevisedTimestamp: null,
-                nextDueTimestamp: null,
-                stages: initialStages
-            };
-            sub.chapters.push(newChap);
-            input.value = "";
-            saveState();
-            renderChapters();
-            updateAnalytics();
-            openChapterManageModal(newId);
-            showToast(`Chapter "${name}" added.`, "success");
-        }
 
         function closeChapterManageModal() {
             const modal = document.getElementById("chapterManageModal");
@@ -4911,48 +4311,7 @@
             showToast(`Chapter updated to "${newName}".`, "success");
         }
 
-        function moveManagedChapterOrder(direction) {
-            // Reordering removed
-        }
 
-        function deleteCurrentManagedChapter() {
-            const subject = appState[activeSubjectId];
-            if (!subject || !currentManagingChapterId) return;
-            const chap = subject.chapters.find(c => c.id === currentManagingChapterId);
-            if (!chap) return;
-
-            const chapName = chap.name.replace(/^\d+\.\s*/, '');
-
-            showDeleteConfirmation(
-                "Delete Chapter",
-                `Are you sure you want to permanently delete chapter "${chapName}" from ${subject.name}? This will delete all its study stages and test score data.`,
-                () => {
-                    const backupChap = JSON.parse(JSON.stringify(chap));
-                    const backupIndex = subject.chapters.findIndex(c => c.id === currentManagingChapterId);
-
-                    subject.chapters = subject.chapters.filter(c => c.id !== currentManagingChapterId);
-                    saveState();
-                    renderChapters();
-                    updateAnalytics();
-                    closeChapterManageModal();
-                    if (typeof updateStudioTabCounts === 'function') updateStudioTabCounts();
-
-                    showUndoToast(`Chapter "${chapName}" deleted.`, () => {
-                        if (backupIndex >= 0) {
-                            subject.chapters.splice(backupIndex, 0, backupChap);
-                        } else {
-                            subject.chapters.push(backupChap);
-                        }
-                        saveState();
-                        renderChapters();
-                        updateAnalytics();
-                        if (typeof updateStudioTabCounts === 'function') updateStudioTabCounts();
-                        showToast(`Restored chapter "${chapName}".`, "success");
-                    });
-                },
-                chapName
-            );
-        }
 
         function openSubjectManageModal(subId = null) {
             if (subId && appState[subId]) {
@@ -5045,32 +4404,6 @@
             }
         }
 
-        function addNewSubjectFromManage() {
-            const input = document.getElementById("manageNewSubjectInput");
-            if (!input) return;
-            const rawName = input.value.trim();
-            const name = rawName.replace(/^\d+[\.\)]\s+/, '') || rawName;
-            if (!name) {
-                showToast("Please enter a subject name.", "warning");
-                input.focus();
-                return;
-            }
-            const newId = "sub_" + Date.now();
-            appState[newId] = {
-                id: newId,
-                name: name,
-                icon: autoAssignIcon(name, 'subject'),
-                chapters: []
-            };
-            subjectOrder.push(newId);
-            activeSubjectId = newId;
-            input.value = "";
-            saveState();
-            renderSubjectTabs();
-            renderChapters();
-            openSubjectManageModal(newId);
-            showToast(`Subject "${name}" added successfully.`, "success");
-        }
 
         function closeSubjectManageModal() { document.getElementById("subjectManageModal").classList.add("hidden"); }
 
@@ -5239,50 +4572,7 @@
             });
         }
 
-        function executeManageSubjectCopy() {
-            const selectEl = document.getElementById("manageSubjectTargetExamSelect");
-            const targetExamId = selectEl ? selectEl.value : "";
-            if (!targetExamId) {
-                showToast("Please create another exam first before copying.", "warning");
-                return;
-            }
-            const res = copySubjectToExam(activeSubjectId, targetExamId);
-            if (res.success) {
-                closeSubjectManageModal();
-                showToast(`Subject copied to "${res.targetExamName}" (${res.chapterCount} chapters).`, "success");
-            } else {
-                showToast(res.error || "Copy failed.", "error");
-            }
-        }
 
-        function executeManageSubjectMove() {
-            const selectEl = document.getElementById("manageSubjectTargetExamSelect");
-            const targetExamId = selectEl ? selectEl.value : "";
-            if (!targetExamId) {
-                showToast("Please create another exam first before moving.", "warning");
-                return;
-            }
-            const currentSub = appState[activeSubjectId];
-            const subName = currentSub ? currentSub.name : "Subject";
-            const targetExam = examsList.find(e => e.id === targetExamId);
-
-            showConfirmDialog({
-                title: "Move Subject to Another Exam",
-                message: `Are you sure you want to move "${subName}" to "${targetExam ? targetExam.name : 'Target Exam'}"? It will be removed from your current exam.`,
-                itemName: subName,
-                confirmText: "Move Subject",
-                confirmColor: "purple",
-                icon: "fa-file-export"
-            }, () => {
-                const res = moveSubjectToExam(activeSubjectId, targetExamId);
-                if (res.success) {
-                    closeSubjectManageModal();
-                    showToast(`Moved "${res.subjectName}" to "${res.targetExamName}".`, "success");
-                } else {
-                    showToast(res.error || "Move failed.", "error");
-                }
-            });
-        }
 
         function copyChapterToTarget(chapterId, targetExamId, targetSubjectId) {
             if (!chapterId || !targetExamId || !targetSubjectId) return { success: false, error: "Please select both target exam and subject." };
@@ -5417,53 +4707,7 @@
             });
         }
 
-        function executeManageChapterCopy() {
-            if (!currentManagingChapterId) {
-                showToast("Please select a chapter to copy.", "warning");
-                return;
-            }
-            const examSelect = document.getElementById("manageChapterTargetExamSelect");
-            const subSelect = document.getElementById("manageChapterTargetSubjectSelect");
-            const targetExamId = examSelect ? examSelect.value : "";
-            const targetSubjectId = subSelect ? subSelect.value : "";
 
-            if (!targetExamId || !targetSubjectId) {
-                showToast("Please select a valid target exam and subject.", "warning");
-                return;
-            }
-
-            const res = copyChapterToTarget(currentManagingChapterId, targetExamId, targetSubjectId);
-            if (res.success) {
-                closeChapterManageModal();
-                showToast(`Copied "${res.chapterName}" to ${res.targetExamName} → ${res.targetSubjectName}.`, "success");
-            } else {
-                showToast(res.error || "Copy failed.", "error");
-            }
-        }
-
-        function executeManageChapterMove() {
-            if (!currentManagingChapterId) {
-                showToast("Please select a chapter to move.", "warning");
-                return;
-            }
-            const examSelect = document.getElementById("manageChapterTargetExamSelect");
-            const subSelect = document.getElementById("manageChapterTargetSubjectSelect");
-            const targetExamId = examSelect ? examSelect.value : "";
-            const targetSubjectId = subSelect ? subSelect.value : "";
-
-            if (!targetExamId || !targetSubjectId) {
-                showToast("Please select a valid target exam and subject.", "warning");
-                return;
-            }
-
-            const res = moveChapterToTarget(currentManagingChapterId, targetExamId, targetSubjectId);
-            if (res.success) {
-                closeChapterManageModal();
-                showToast(`Moved "${res.chapterName}" to ${res.targetExamName} → ${res.targetSubjectName}.`, "success");
-            } else {
-                showToast(res.error || "Move failed.", "error");
-            }
-        }
 
         // =========================================================================
         // UNIFIED MANAGEMENT STUDIO CONTROLLER
@@ -5474,28 +4718,6 @@
         let studioBulkMode = false;
         let studioSelectedBulkChapterIds = new Set();
 
-        function updateStudioTabCounts() {
-            const examCount = (examsList || []).length;
-            const validSubs = (subjectOrder || []).filter(id => appState && appState[id]);
-            const subjCount = validSubs.length;
-
-            let chapCount = 0;
-            validSubs.forEach(id => {
-                const s = appState[id];
-                if (s && Array.isArray(s.chapters)) chapCount += s.chapters.length;
-            });
-            const stageCount = (STAGES || []).length;
-
-            const exEl = document.getElementById("studioTabCount-exams");
-            const subEl = document.getElementById("studioTabCount-subjects");
-            const chapEl = document.getElementById("studioTabCount-chapters");
-            const stgEl = document.getElementById("studioTabCount-stages");
-
-            if (exEl) exEl.innerText = examCount;
-            if (subEl) subEl.innerText = subjCount;
-            if (chapEl) chapEl.innerText = chapCount;
-            if (stgEl) stgEl.innerText = stageCount;
-        }
 
         function openAiScannerModal() {
             const activeExam = (examsList || []).find(e => e.id === activeExamId);
@@ -5537,43 +4759,12 @@
             }
         }
 
-        function closeStudioModal() {
-            closeEditExamModal();
-            closeSubjectManageModal();
-            closeChapterManageModal();
-            closeSettingsModal();
-            closeAiScannerModal();
-        }
 
-        function switchStudioTab(tab) {
-            openStudioModal(tab);
-        }
 
         function updateStudioTabCounts() {
             // Safely retained as no-op
         }
 
-        function setStudioStatusFilter(filter) {
-            studioStatusFilter = filter || "all";
-            const filters = ["all", "completed", "in-progress", "pending", "high-priority"];
-            filters.forEach(f => {
-                const btn = document.getElementById(`studioFilter-${f}`);
-                if (!btn) return;
-                if (f === studioStatusFilter) {
-                    btn.className = "px-2.5 py-1 font-bold rounded-lg bg-sky-600 text-white shadow-xs cursor-pointer transition-all whitespace-nowrap";
-                } else {
-                    btn.className = "px-2.5 py-1 font-medium rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer transition-all whitespace-nowrap";
-                }
-            });
-
-            if (activeStudioTab === "chapters") {
-                const subId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
-                onStudioChapSubjectChange(subId);
-                if (studioBulkMode) {
-                    renderStudioBulkChapterList();
-                }
-            }
-        }
 
         function filterStudioItems(query) {
             const q = (query || "").trim().toLowerCase();
@@ -5630,11 +4821,6 @@
             }
         }
 
-        function clearStudioSearch() {
-            const input = document.getElementById("studioGlobalSearchInput");
-            if (input) input.value = "";
-            filterStudioItems("");
-        }
 
         function renderStudioExamsTab() {
             const listEl = document.getElementById("studioExamsList");
@@ -5715,71 +4901,6 @@
             showToast(`Exam saved as "${newName}".`, "success");
         }
 
-        function deleteActiveExamFromStudio() {
-            if (!activeExamId) return showToast("No active exam to delete.", "warning");
-            const exam = examsList.find(e => e.id === activeExamId);
-            if (!exam) return showToast("Exam not found.", "error");
-
-            const deletedName = exam.name;
-            const targetData = examsData[activeExamId] || (activeExamId ? { appState, subjectOrder } : { appState: {}, subjectOrder: [] });
-            const subCount = Object.keys(targetData.appState || {}).length;
-
-            showDeleteConfirmation(
-                "Delete Active Exam",
-                `Are you sure you want to permanently delete exam "${deletedName}" and all its ${subCount} subject(s), chapters, and study records? This cannot be undone.`,
-                () => {
-                    const backupExam = JSON.parse(JSON.stringify(exam));
-                    const backupExamData = JSON.parse(JSON.stringify(targetData));
-                    const backupActiveExamId = activeExamId;
-                    const backupExamIndex = examsList.findIndex(e => e.id === backupActiveExamId);
-
-                    examsList = examsList.filter(e => e.id !== activeExamId);
-                    delete examsData[activeExamId];
-
-                    if (examsList.length === 0) {
-                        activeExamId = "";
-                        appState = {};
-                        subjectOrder = [];
-                        activeSubjectId = "";
-                    } else {
-                        activeExamId = examsList[0].id;
-                        const bucket = examsData[activeExamId] || { appState: {}, subjectOrder: [], activeSubjectId: "" };
-                        appState = JSON.parse(JSON.stringify(bucket.appState || {}));
-                        subjectOrder = [...(bucket.subjectOrder || Object.keys(appState))];
-                        activeSubjectId = bucket.activeSubjectId || (subjectOrder[0] || "");
-                    }
-
-                    saveState();
-                    renderExamTabs();
-                    renderSubjectTabs();
-                    renderChapters();
-                    renderStudioExamsTab();
-                    updateStudioTabCounts();
-
-                    showUndoToast(`Exam "${deletedName}" deleted.`, () => {
-                        if (backupExamIndex >= 0) {
-                            examsList.splice(backupExamIndex, 0, backupExam);
-                        } else {
-                            examsList.push(backupExam);
-                        }
-                        examsData[backupActiveExamId] = backupExamData;
-                        activeExamId = backupActiveExamId;
-                        appState = JSON.parse(JSON.stringify(backupExamData.appState || {}));
-                        subjectOrder = [...(backupExamData.subjectOrder || Object.keys(appState))];
-                        activeSubjectId = backupExamData.activeSubjectId || (subjectOrder[0] || "");
-
-                        saveState();
-                        renderExamTabs();
-                        renderSubjectTabs();
-                        renderChapters();
-                        renderStudioExamsTab();
-                        updateStudioTabCounts();
-                        showToast(`Restored exam "${deletedName}".`, "success");
-                    });
-                },
-                deletedName
-            );
-        }
 
         function addNewExamFromStudio() {
             const input = document.getElementById("studioNewExamInput");
@@ -5891,10 +5012,6 @@
             showToast(`Subject "${name}" created and selected!`, "success");
         }
 
-        function moveStudioSubjectOrder(direction) {
-            moveSubjectOrder(direction);
-            renderStudioSubjectsTab();
-        }
 
         function saveStudioSubjectChanges() {
             const sub = appState[activeSubjectId];
@@ -5914,50 +5031,6 @@
             showToast(`Subject updated to "${newName}".`, "success");
         }
 
-        function deleteStudioSubject() {
-            const sub = appState[activeSubjectId];
-            if (!sub) return showToast("No active subject selected to delete.", "warning");
-            const subName = sub.name;
-            const chapCount = sub.chapters ? sub.chapters.length : 0;
-
-            showDeleteConfirmation(
-                "Delete Active Subject",
-                `Are you sure you want to permanently delete subject "${subName}" and all its ${chapCount} chapter(s)?`,
-                () => {
-                    const backupSub = JSON.parse(JSON.stringify(sub));
-                    const backupSubId = activeSubjectId;
-                    const backupIndex = subjectOrder.indexOf(backupSubId);
-
-                    delete appState[activeSubjectId];
-                    subjectOrder = subjectOrder.filter(id => id !== activeSubjectId);
-                    const remaining = subjectOrder.filter(id => appState[id]);
-                    activeSubjectId = remaining.length > 0 ? remaining[0] : "";
-
-                    saveState();
-                    renderSubjectTabs();
-                    renderChapters();
-                    renderStudioSubjectsTab();
-                    updateStudioTabCounts();
-
-                    showUndoToast(`Subject "${subName}" deleted.`, () => {
-                        appState[backupSubId] = backupSub;
-                        if (backupIndex >= 0) {
-                            subjectOrder.splice(backupIndex, 0, backupSubId);
-                        } else {
-                            subjectOrder.push(backupSubId);
-                        }
-                        activeSubjectId = backupSubId;
-                        saveState();
-                        renderSubjectTabs();
-                        renderChapters();
-                        renderStudioSubjectsTab();
-                        updateStudioTabCounts();
-                        showToast(`Restored subject "${subName}".`, "success");
-                    });
-                },
-                subName
-            );
-        }
 
         function populateStudioSubjectTargetExams() {
             const selectEl = document.getElementById("studioSubjectTargetExamSelect");
@@ -5983,85 +5056,10 @@
             });
         }
 
-        function executeStudioSubjectCopy() {
-            const selectEl = document.getElementById("studioSubjectTargetExamSelect");
-            const targetExamId = selectEl ? selectEl.value : "";
-            if (!targetExamId) return showToast("Create another exam first.", "warning");
 
-            const res = copySubjectToExam(activeSubjectId, targetExamId);
-            if (res.success) {
-                showToast(`Subject copied to "${res.targetExamName}" with all ${res.chapterCount} chapters.`, "success");
-            } else {
-                showToast(res.error || "Copy failed.", "error");
-            }
-        }
-
-        function executeStudioSubjectMove() {
-            const selectEl = document.getElementById("studioSubjectTargetExamSelect");
-            const targetExamId = selectEl ? selectEl.value : "";
-            if (!targetExamId) return showToast("Create another exam first.", "warning");
-
-            const subName = appState[activeSubjectId]?.name || "Subject";
-            const targetExam = examsList.find(e => e.id === targetExamId);
-
-            showDeleteConfirmation(
-                "Move Subject to Another Exam",
-                `Are you sure you want to move "${subName}" to "${targetExam ? targetExam.name : 'Target Exam'}"? It will be removed from your current exam.`,
-                () => {
-                    const res = moveSubjectToExam(activeSubjectId, targetExamId);
-                    if (res.success) {
-                        renderStudioSubjectsTab();
-                        updateStudioTabCounts();
-                        showToast(`Moved "${res.subjectName}" to "${res.targetExamName}".`, "success");
-                    } else {
-                        showToast(res.error || "Move failed.", "error");
-                    }
-                },
-                subName
-            );
-        }
 
         let studioSelectedChapterId = null;
 
-        function renderStudioChaptersTab() {
-            const subSelect = document.getElementById("studioChapSubjectSelect");
-            const newChapSubSelect = document.getElementById("studioNewChapTargetSubjectSelect");
-            if (subSelect) subSelect.innerHTML = "";
-            if (newChapSubSelect) newChapSubSelect.innerHTML = "";
-
-            const subs = subjectOrder.map(id => appState[id]).filter(Boolean);
-            if (subs.length === 0) {
-                if (subSelect) subSelect.innerHTML = `<option value="">-- No subjects available --</option>`;
-                if (newChapSubSelect) newChapSubSelect.innerHTML = `<option value="">-- No subjects available --</option>`;
-                studioSelectedChapterId = null;
-                return;
-            }
-
-            subs.forEach(s => {
-                if (subSelect) {
-                    const opt = document.createElement("option");
-                    opt.value = s.id;
-                    opt.text = s.name;
-                    if (s.id === activeSubjectId) opt.selected = true;
-                    subSelect.appendChild(opt);
-                }
-                if (newChapSubSelect) {
-                    const opt2 = document.createElement("option");
-                    opt2.value = s.id;
-                    opt2.text = s.name;
-                    if (s.id === activeSubjectId) opt2.selected = true;
-                    newChapSubSelect.appendChild(opt2);
-                }
-            });
-
-            const effectiveSubId = (subSelect && subSelect.value) ? subSelect.value : activeSubjectId;
-            onStudioChapSubjectChange(effectiveSubId);
-            populateStudioChapTargetExams();
-            if (studioBulkMode) {
-                populateStudioBulkTargetSubjects();
-                renderStudioBulkChapterList();
-            }
-        }
 
         function onStudioChapSubjectChange(subId) {
             const chapSelect = document.getElementById("studioChapChapterSelect");
@@ -6223,26 +5221,6 @@
             showToast(`Chapter "${name}" added to ${sub.name}!`, "success");
         }
 
-        function moveStudioChapterOrder(direction) {
-            const subId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
-            const sub = appState[subId];
-            if (!sub || !studioSelectedChapterId) return;
-
-            const idx = sub.chapters.findIndex(c => c.id === studioSelectedChapterId);
-            if (idx === -1) return;
-            const targetIdx = idx + direction;
-            if (targetIdx < 0 || targetIdx >= sub.chapters.length) return;
-
-            const [moved] = sub.chapters.splice(idx, 1);
-            sub.chapters.splice(targetIdx, 0, moved);
-
-            saveState();
-            renderChapters();
-            onStudioChapSubjectChange(subId);
-            document.getElementById("studioChapChapterSelect").value = studioSelectedChapterId;
-            onStudioChapSelectChange(studioSelectedChapterId);
-            showToast(`Moved "${moved.name}" ${direction < 0 ? 'up' : 'down'}.`, "info");
-        }
 
         function saveStudioChapterChanges() {
             const subId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
@@ -6277,49 +5255,6 @@
             showToast(`Chapter updated to "${newName}".`, "success");
         }
 
-        function deleteStudioChapter() {
-            const subId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
-            const sub = appState[subId];
-            if (!sub || !studioSelectedChapterId) return showToast("No chapter selected to delete.", "warning");
-            const chap = sub.chapters.find(c => c.id === studioSelectedChapterId);
-            if (!chap) return;
-
-            const chapName = chap.name;
-
-            showDeleteConfirmation(
-                "Delete Chapter",
-                `Are you sure you want to permanently delete chapter "${chapName}" from ${sub.name}?`,
-                () => {
-                    const backupChap = JSON.parse(JSON.stringify(chap));
-                    const backupIndex = sub.chapters.findIndex(c => c.id === studioSelectedChapterId);
-
-                    sub.chapters = sub.chapters.filter(c => c.id !== studioSelectedChapterId);
-                    studioSelectedChapterId = sub.chapters.length > 0 ? sub.chapters[0].id : null;
-
-                    saveState();
-                    renderChapters();
-                    updateAnalytics();
-                    onStudioChapSubjectChange(subId);
-                    updateStudioTabCounts();
-
-                    showUndoToast(`Chapter "${chapName}" deleted.`, () => {
-                        if (backupIndex >= 0) {
-                            sub.chapters.splice(backupIndex, 0, backupChap);
-                        } else {
-                            sub.chapters.push(backupChap);
-                        }
-                        studioSelectedChapterId = backupChap.id;
-                        saveState();
-                        renderChapters();
-                        updateAnalytics();
-                        onStudioChapSubjectChange(subId);
-                        updateStudioTabCounts();
-                        showToast(`Restored chapter "${chapName}".`, "success");
-                    });
-                },
-                chapName
-            );
-        }
 
         function populateStudioChapTargetExams() {
             const examSelect = document.getElementById("studioChapTargetExamSelect");
@@ -6367,65 +5302,10 @@
             });
         }
 
-        function executeStudioChapterCopy() {
-            if (!studioSelectedChapterId) return showToast("Select a chapter first.", "warning");
-            const examSelect = document.getElementById("studioChapTargetExamSelect");
-            const subSelect = document.getElementById("studioChapTargetSubjectSelect");
-            const targetExamId = examSelect ? examSelect.value : "";
-            const targetSubjectId = subSelect ? subSelect.value : "";
 
-            if (!targetExamId || !targetSubjectId) return showToast("Choose valid target exam and subject.", "warning");
-
-            const res = copyChapterToTarget(studioSelectedChapterId, targetExamId, targetSubjectId);
-            if (res.success) {
-                updateStudioTabCounts();
-                showToast(`Copied "${res.chapterName}" to ${res.targetExamName} → ${res.targetSubjectName}.`, "success");
-            } else {
-                showToast(res.error || "Copy failed.", "error");
-            }
-        }
-
-        function executeStudioChapterMove() {
-            if (!studioSelectedChapterId) return showToast("Select a chapter first.", "warning");
-            const examSelect = document.getElementById("studioChapTargetExamSelect");
-            const subSelect = document.getElementById("studioChapTargetSubjectSelect");
-            const targetExamId = examSelect ? examSelect.value : "";
-            const targetSubjectId = subSelect ? subSelect.value : "";
-
-            if (!targetExamId || !targetSubjectId) return showToast("Choose valid target exam and subject.", "warning");
-
-            const res = moveChapterToTarget(studioSelectedChapterId, targetExamId, targetSubjectId);
-            if (res.success) {
-                const currentSubId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
-                onStudioChapSubjectChange(currentSubId);
-                updateStudioTabCounts();
-                showToast(`Moved "${res.chapterName}" to ${res.targetExamName} → ${res.targetSubjectName}.`, "success");
-            } else {
-                showToast(res.error || "Move failed.", "error");
-            }
-        }
 
         // --- Studio Multi-Select Mode & Bulk Operations ---
 
-        function toggleStudioBulkMode() {
-            studioBulkMode = !studioBulkMode;
-            const card = document.getElementById("studioBulkActionsCard");
-            const btn = document.getElementById("studioBulkModeToggleBtn");
-            const btnText = document.getElementById("studioBulkModeBtnText");
-
-            if (studioBulkMode) {
-                if (card) card.classList.remove("hidden");
-                if (btn) btn.className = "px-2.5 py-1 text-[11px] font-bold rounded-lg bg-sky-600 text-white shadow-xs transition-all flex items-center gap-1 cursor-pointer";
-                if (btnText) btnText.innerText = "Exit Bulk Mode";
-                populateStudioBulkTargetSubjects();
-                renderStudioBulkChapterList();
-            } else {
-                if (card) card.classList.add("hidden");
-                if (btn) btn.className = "px-2.5 py-1 text-[11px] font-bold rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 hover:bg-sky-500/20 border border-sky-500/30 transition-all flex items-center gap-1 cursor-pointer";
-                if (btnText) btnText.innerText = "Multi-Select Mode";
-                studioSelectedBulkChapterIds.clear();
-            }
-        }
 
         function populateStudioBulkTargetSubjects() {
             const selectEl = document.getElementById("studioBulkTargetSubjectSelect");
@@ -6543,41 +5423,6 @@
             renderStudioBulkChapterList();
         }
 
-        function toggleStudioSelectAllChapters() {
-            const subId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
-            const sub = appState[subId];
-            if (!sub || !sub.chapters) return;
-
-            const q = (document.getElementById("studioGlobalSearchInput")?.value || "").trim().toLowerCase();
-            const visibleChaps = sub.chapters.filter(c => {
-                if (studioStatusFilter !== "all") {
-                    const totalStages = STAGES.length;
-                    const compCount = STAGES.filter(st => c.stages && c.stages[st.id]).length;
-                    if (studioStatusFilter === "completed" && compCount < totalStages) return false;
-                    if (studioStatusFilter === "in-progress" && (compCount === 0 || compCount === totalStages)) return false;
-                    if (studioStatusFilter === "pending" && compCount > 0) return false;
-                    if (studioStatusFilter === "high-priority") {
-                        const isWeak = !!c.weak;
-                        const isLowScore = (c.score !== "" && c.score !== undefined && Number(c.score) < 50);
-                        if (!isWeak && !isLowScore) return false;
-                    }
-                }
-                if (q) {
-                    const cName = (c.name || "").toLowerCase();
-                    if (!cName.includes(q)) return false;
-                }
-                return true;
-            });
-
-            const allSelected = visibleChaps.length > 0 && visibleChaps.every(c => studioSelectedBulkChapterIds.has(c.id));
-            if (allSelected) {
-                visibleChaps.forEach(c => studioSelectedBulkChapterIds.delete(c.id));
-            } else {
-                visibleChaps.forEach(c => studioSelectedBulkChapterIds.add(c.id));
-            }
-
-            renderStudioBulkChapterList();
-        }
 
         function inlineRenameStudioChapter(chapId) {
             const subId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
@@ -6625,95 +5470,7 @@
             input.select();
         }
 
-        function executeStudioBulkDelete() {
-            if (studioSelectedBulkChapterIds.size === 0) {
-                showToast("Please select chapters first.", "warning");
-                return;
-            }
 
-            const subId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
-            const sub = appState[subId];
-            if (!sub) return;
-
-            const count = studioSelectedBulkChapterIds.size;
-
-            showDeleteConfirmation(
-                "Bulk Delete Chapters",
-                `Are you sure you want to permanently delete ${count} selected chapter(s) from "${sub.name}"?`,
-                () => {
-                    const toDeleteIds = new Set(studioSelectedBulkChapterIds);
-                    const backupIndices = sub.chapters.map((c, i) => toDeleteIds.has(c.id) ? { index: i, chap: JSON.parse(JSON.stringify(c)) } : null).filter(Boolean);
-
-                    sub.chapters = sub.chapters.filter(c => !toDeleteIds.has(c.id));
-                    studioSelectedBulkChapterIds.clear();
-
-                    if (!sub.chapters.some(c => c.id === studioSelectedChapterId)) {
-                        studioSelectedChapterId = sub.chapters.length > 0 ? sub.chapters[0].id : null;
-                    }
-
-                    saveState();
-                    renderChapters();
-                    updateAnalytics();
-                    onStudioChapSubjectChange(subId);
-                    updateStudioTabCounts();
-
-                    showUndoToast(`Deleted ${count} chapter(s).`, () => {
-                        backupIndices.forEach(item => {
-                            sub.chapters.splice(item.index, 0, item.chap);
-                        });
-                        saveState();
-                        renderChapters();
-                        updateAnalytics();
-                        onStudioChapSubjectChange(subId);
-                        updateStudioTabCounts();
-                        showToast(`Restored ${count} chapter(s).`, "success");
-                    });
-                },
-                `${count} Chapters`
-            );
-        }
-
-        function executeStudioBulkMove() {
-            if (studioSelectedBulkChapterIds.size === 0) {
-                showToast("Please select chapters to move.", "warning");
-                return;
-            }
-
-            const currentSubId = document.getElementById("studioChapSubjectSelect")?.value || activeSubjectId;
-            const currentSub = appState[currentSubId];
-            const targetSubSelect = document.getElementById("studioBulkTargetSubjectSelect");
-            const targetSubId = targetSubSelect ? targetSubSelect.value : "";
-            const targetSub = appState[targetSubId];
-
-            if (!currentSub || !targetSub) {
-                showToast("Select a valid target subject.", "warning");
-                return;
-            }
-
-            const count = studioSelectedBulkChapterIds.size;
-            const toMoveIds = new Set(studioSelectedBulkChapterIds);
-            const movedChapters = currentSub.chapters.filter(c => toMoveIds.has(c.id));
-
-            if (!targetSub.chapters) targetSub.chapters = [];
-            movedChapters.forEach(c => {
-                targetSub.chapters.push(c);
-            });
-
-            currentSub.chapters = currentSub.chapters.filter(c => !toMoveIds.has(c.id));
-            studioSelectedBulkChapterIds.clear();
-
-            if (!currentSub.chapters.some(c => c.id === studioSelectedChapterId)) {
-                studioSelectedChapterId = currentSub.chapters.length > 0 ? currentSub.chapters[0].id : null;
-            }
-
-            saveState();
-            renderChapters();
-            updateAnalytics();
-            onStudioChapSubjectChange(currentSubId);
-            populateStudioBulkTargetSubjects();
-            updateStudioTabCounts();
-            showToast(`Moved ${count} chapter(s) to "${targetSub.name}".`, "success");
-        }
 
         function renderStudioStagesTab() {
             const container = document.getElementById("studioStageBuilderList");
@@ -7001,23 +5758,6 @@
         }
 
         // Backwards-compatible shim
-        function showLinkedSubjects(sharedId) {
-            let foundChap = null;
-            if (appState && appState[activeSubjectId]) {
-                foundChap = appState[activeSubjectId].chapters.find(c => c.sharedId === sharedId);
-            }
-            if (!foundChap) {
-                for (const sub of Object.values(appState || {})) {
-                    foundChap = (sub.chapters || []).find(c => c.sharedId === sharedId);
-                    if (foundChap) break;
-                }
-            }
-            if (foundChap) {
-                openUniversalLinkedModal(foundChap.id);
-            } else {
-                showToast("No matching linked chapter found in active view.", "info");
-            }
-        }
 
         function closeLinkedModal() {
             document.getElementById("linkedChaptersModal").classList.add("hidden");
@@ -7235,10 +5975,6 @@
             renderChapters();
         }
 
-        function toggleSecondaryFiltersMobile() {
-            // Maintained for backward compatibility; all 6 filters are now accessible directly in the scrollable pills row
-            renderChapters();
-        }
 
         function renderChapters() {
             const container = document.getElementById("chaptersContainer");
@@ -7720,27 +6456,6 @@
             initChapterDragAndDrop();
         }
 
-        function editChapterName(chapterId) {
-            const subject = appState[activeSubjectId];
-            if (!subject) return;
-            const chap = subject.chapters.find(c => c.id === chapterId);
-            if (chap) {
-                const newName = prompt("Edit Chapter Name:", chap.name.replace(/^\d+\.\s*/, ''));
-                if (newName && newName.trim()) {
-                    const trimmed = newName.trim().replace(/^\d+\.\s*/, '');
-                    const targetSharedId = chap.sharedId;
-                    Object.values(appState).forEach(sub => {
-                        sub.chapters.forEach(c => {
-                            if (c.sharedId === targetSharedId) {
-                                c.name = trimmed;
-                            }
-                        });
-                    });
-                    saveState();
-                    renderChapters();
-                }
-            }
-        }
 
         function handleLockedStageClick(reason) {
             showToast("🔒 " + (reason || "This stage is locked until cooldown/prerequisites are complete."), "info");
@@ -7842,46 +6557,7 @@
             }
         }
 
-        function updateScore(chapterId, scoreVal) {
-            const subject = appState[activeSubjectId];
-            if (!subject) return;
-            const chap = subject.chapters.find(c => c.id === chapterId);
-            if (chap) {
-                const targetSharedId = chap.sharedId;
-                Object.values(appState).forEach(sub => {
-                    sub.chapters.forEach(c => {
-                        if (c.sharedId === targetSharedId) {
-                            c.score = scoreVal;
-                        }
-                    });
-                });
-                saveState();
-                if (scoreVal !== "") recordActivityForStreak();
-                renderChapters();
-                updateAnalytics();
-            }
-        }
 
-        function updateChapterQuestions(chapterId, field, val) {
-            const subject = appState[activeSubjectId];
-            if (!subject) return;
-            const chap = subject.chapters.find(c => c.id === chapterId);
-            if (chap) {
-                const targetSharedId = chap.sharedId;
-                const num = val !== "" && !isNaN(parseInt(val, 10)) ? parseInt(val, 10) : "";
-                Object.values(appState).forEach(sub => {
-                    sub.chapters.forEach(c => {
-                        if (c.sharedId === targetSharedId) {
-                            c[field] = num;
-                        }
-                    });
-                });
-                saveState();
-                if (num !== "") recordActivityForStreak();
-                renderChapters();
-                updateAnalytics();
-            }
-        }
 
         function toggleWeak(chapterId) {
             const subject = appState[activeSubjectId];
@@ -8012,14 +6688,6 @@
             updateStreakUI();
         }
 
-        function openAnalyticsModal() {}
-        function closeAnalyticsModal() {}
-
-        function checkAndUpdateStreak() {
-            if (!streakData) streakData = { count: 0, lastDate: "" };
-            if (streakData.count === undefined || streakData.count === null) streakData.count = 0;
-            updateStreakUI();
-        }
 
         function recordActivityForStreak() {
             if (!streakData) streakData = { count: 0, lastDate: "" };
@@ -8055,17 +6723,6 @@
             }
         }
 
-        function toggleTheme() {
-            const html = document.documentElement;
-            const icon = document.getElementById("themeIcon");
-            if (html.classList.contains('dark')) {
-                html.classList.remove('dark');
-                icon.className = "fa-solid fa-sun text-amber-500";
-            } else {
-                html.classList.add('dark');
-                icon.className = "fa-solid fa-moon text-amber-500";
-            }
-        }
 
         function dispatchAction(actionName) {
             if (actionName === 'openStudioModal') {
@@ -8146,45 +6803,10 @@
             // Retained as safe no-op
         }
 
-        function updateSettingsStageTitle(idx, newTitle) {
-            const val = newTitle.trim();
-            if (val && STAGES[idx]) {
-                STAGES[idx].title = val;
-                localStorage.setItem(STAGES_KEY, JSON.stringify(STAGES));
-                saveToFirebase();
-                renderWorkflowLegend();
-                renderChapters();
-                showToast(`Stage updated to "${val}".`, "success");
-            }
-        }
 
-        function toggleNavTabVisible(index) {
-            // Prevent users from hiding the Settings tab under any circumstances
-            if (navTabsConfig[index].id === 'settings') {
-                showToast("The Settings tab is mandatory and cannot be disabled.", "info");
-                return;
-            }
-            navTabsConfig[index].visible = !navTabsConfig[index].visible;
-            localStorage.setItem(NAV_KEY, JSON.stringify(navTabsConfig));
-            renderBottomNav();
-            saveToFirebase();
-        }
 
         function closeSettingsModal() { document.getElementById("settingsModal").classList.add("hidden"); }
 
-        function openTimerModal() {}
-        function closeTimerModal() {}
-
-        function openAddModal() {
-            const subject = appState[activeSubjectId];
-            if (!subject) {
-                showToast("Select or create an active subject first!", "warning");
-                return;
-            }
-            document.getElementById("modalSubjectName").value = subject.name;
-            document.getElementById("newChapterInput").value = "";
-            document.getElementById("addModal").classList.remove("hidden");
-        }
         function closeAddModal() { document.getElementById("addModal").classList.add("hidden"); }
         function saveCustomChapter() {
             const rawName = document.getElementById("newChapterInput").value.trim();
@@ -8279,28 +6901,6 @@
             });
         }
 
-        function clearChapterScore(chapterId, event) {
-            if (event && event.stopPropagation) event.stopPropagation();
-            const subject = appState[activeSubjectId];
-            if (!subject) return;
-            const chap = subject.chapters.find(c => c.id === chapterId);
-            if (!chap) return;
-
-            const targetSharedId = chap.sharedId;
-            Object.values(appState).forEach(sub => {
-                sub.chapters.forEach(c => {
-                    if (c.sharedId === targetSharedId) {
-                        c.score = "";
-                        c.questionsAttempted = "";
-                        c.questionsCorrect = "";
-                    }
-                });
-            });
-            saveState();
-            renderChapters();
-            updateAnalytics();
-            showToast(`Cleared mock test score & performance for "${chap.name}".`, "info");
-        }
 
         function clearChapterNote(chapterId, event) {
             if (event && event.stopPropagation) event.stopPropagation();
