@@ -5187,12 +5187,6 @@
                         ${isSelected ? '<span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-sky-500 text-white shrink-0">Active</span>' : ''}
                     </div>
                     <div class="flex items-center gap-1 shrink-0 ml-2">
-                        <button type="button" onclick="moveExamOrder(${idx}, -1)" ${idx === 0 ? 'disabled' : ''} class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-200 flex items-center justify-center cursor-pointer" title="Move Left / Up">
-                            <i class="fa-solid fa-arrow-up text-xs"></i>
-                        </button>
-                        <button type="button" onclick="moveExamOrder(${idx}, 1)" ${idx === examsList.length - 1 ? 'disabled' : ''} class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-200 flex items-center justify-center cursor-pointer" title="Move Down / Right">
-                            <i class="fa-solid fa-arrow-down text-xs"></i>
-                        </button>
                         <button type="button" onclick="switchExam('${exam.id}'); renderStudioExamsTab(); updateStudioTabCounts();" class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold ${isSelected ? 'bg-sky-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300'} cursor-pointer">
                             ${isSelected ? 'Selected' : 'Select'}
                         </button>
