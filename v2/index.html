@@ -754,10 +754,6 @@
                                 <i id="scanAllBtnIcon" class="fa-solid fa-play"></i>
                                 <span id="scanAllBtnText">Scan Selected Files (0)</span>
                             </button>
-                            <button type="button" onclick="shareSyllabusToGemini()" class="min-h-[40px] px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer">
-                                <i class="fa-solid fa-arrow-up-right-from-square"></i> Open with Gemini
-                            </button>
-
                             <button id="clearAllBtn" onclick="clearAllFilesFromQueue()" disabled class="min-h-[40px] px-3.5 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl transition-all disabled:opacity-40 select-none cursor-pointer">
                                 <i class="fa-solid fa-trash-can text-rose-500"></i> Clear Queue
                             </button>
@@ -4041,35 +4037,6 @@
                 `;
                 listEl.appendChild(card);
             });
-        }
-
-        async function shareSyllabusToGemini() {
-            const readyFiles = uploadedFilesList.filter(item => item && item.file);
-            if (!readyFiles.length) {
-                showToast("Add at least one PDF or image before opening Gemini.", "warning");
-                return;
-            }
-            const prompt = "Please extract the complete syllabus from the attached file(s). Return ONLY a clean numbered hierarchy of units, topics and chapter names. Preserve the original order, remove page numbers and repeated headers, do not invent topics, and keep chapter titles concise. If multiple files overlap, merge duplicates. I will review the result before importing it into Trackio PRO.";
-            try {
-                const files = readyFiles.map(item => item.file);
-                if (navigator.share && navigator.canShare && navigator.canShare({ files })) {
-                    await navigator.share({ title: "Trackio PRO – Syllabus extraction", text: prompt, files });
-                    showToast("Choose Gemini in Android's share sheet to scan the selected syllabus files.", "success");
-                    return;
-                }
-            } catch (e) {
-                if (e && (e.name === "AbortError")) return;
-                console.warn("File sharing to Gemini unavailable:", e);
-            }
-            try {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(prompt);
-                }
-            } catch (e) {}
-            const geminiUrl = "https://gemini.google.com/app";
-            const opened = window.open(geminiUrl, "_blank", "noopener");
-            if (!opened) window.location.href = geminiUrl;
-            showToast("Gemini opened (or browser fallback). Prompt copied if clipboard permission was available; attach the queued files manually.", "info");
         }
 
         // --- Core Scanning Workflow with Server-First & Client-Fallback ---
