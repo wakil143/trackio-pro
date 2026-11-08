@@ -1,0 +1,33 @@
+name: Validate Trackio PRO
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  javascript-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check inline JavaScript and service worker syntax
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, subprocess, tempfile
+          html = pathlib.Path("v2/index.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script\\b([^>]*)>([\\s\\S]*?)</script>", html, flags=re.I)
+          checked = 0
+          for attrs, code in scripts:
+              if re.search(r"\\bsrc\\s*=", attrs, flags=re.I):
+                  continue
+              if not code.strip():
+                  continue
+              with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8") as f:
+                  f.write(code)
+                  f.flush()
+                  subprocess.run(["node", "--check", f.name], check=True)
+              checked += 1
+          subprocess.run(["node", "--check", "v2/sw.js"], check=True)
+          print(f"Validated {checked} inline script blocks and v2/sw.js")
+          PY
