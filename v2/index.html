@@ -856,7 +856,7 @@
                 <!-- Notification permission and in-app test -->
                 <div class="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-2">
                     <div class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-bell text-amber-500"></i> Revision Notifications</div>
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Allow notifications and send a test alert. Reminders are checked while Trackio is open; background alerts need push-server setup.</p>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Android 17 needs notifications allowed for Trackio PRO and for the website in Chrome Site settings. If permission was blocked earlier, change both settings and reopen the app. Test alerts work while Trackio is active; background alerts need push-server setup.</p>
                     <button type="button" onclick="sendTestNotification()" class="min-h-[42px] px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl">Enable & Test Notification</button>
                 </div>
 
@@ -1644,18 +1644,25 @@
 
         async function requestNotificationPermission() {
             if (!("Notification" in window)) {
-                showToast("Notifications are not supported by this installed browser.", "warning");
+                showToast("Notifications are unavailable in this installed browser. Open Trackio PRO in Chrome and check Android 17 app notification settings.", "warning");
                 return "unsupported";
             }
             try {
+                // Ask only from the user's button tap. A previously denied permission
+                // cannot be re-prompted by JavaScript; the user must change device/site settings.
                 const permission = Notification.permission === "default"
                     ? await Notification.requestPermission()
                     : Notification.permission;
-                if (permission === "granted") showToast("Notification permission is enabled.", "success");
-                else showToast("Notification permission is " + permission + ". Enable it in Android app settings.", "warning");
+                if (permission === "granted") {
+                    showToast("Trackio PRO notifications are allowed. Sending a test alert…", "success");
+                } else if (permission === "denied") {
+                    showToast("Notifications are blocked. Android 17: allow Trackio PRO in Settings > Apps > Trackio PRO > Notifications, AND allow wakil143.github.io in Chrome > Settings > Site settings > Notifications. Then reopen Trackio PRO.", "warning");
+                } else {
+                    showToast("Notification permission was not granted. Tap Enable & Test again and allow the prompt.", "warning");
+                }
                 return permission;
             } catch (e) {
-                showToast("Could not request notification permission: " + (e.message || e), "error");
+                showToast("Could not check notification permission: " + (e.message || e) + ". Check Android and Chrome notification settings.", "error");
                 return "error";
             }
         }
