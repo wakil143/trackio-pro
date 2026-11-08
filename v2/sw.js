@@ -1,4 +1,4 @@
-const CACHE_NAME = "trackio-pro-v2-shell-v4";
+const CACHE_NAME = "trackio-pro-v2-shell-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -20,6 +20,22 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = new URL((event.notification.data && event.notification.data.url) || "./", self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          if ("navigate" in client && client.url !== targetUrl) client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
+    })
   );
 });
 

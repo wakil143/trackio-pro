@@ -39,7 +39,7 @@
     <script>
         if ("serviceWorker" in navigator) {
             window.addEventListener("load", () => {
-                navigator.serviceWorker.register("./sw.js?v=4").catch(() => {});
+                navigator.serviceWorker.register("./sw.js?v=5").catch(() => {});
             });
         }
     </script>
@@ -754,6 +754,9 @@
                                 <i id="scanAllBtnIcon" class="fa-solid fa-play"></i>
                                 <span id="scanAllBtnText">Scan Selected Files (0)</span>
                             </button>
+                            <button type="button" onclick="shareSyllabusToGemini()" class="min-h-[40px] px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer">
+                                <i class="fa-solid fa-arrow-up-right-from-square"></i> Open with Gemini
+                            </button>
 
                             <button id="clearAllBtn" onclick="clearAllFilesFromQueue()" disabled class="min-h-[40px] px-3.5 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl transition-all disabled:opacity-40 select-none cursor-pointer">
                                 <i class="fa-solid fa-trash-can text-rose-500"></i> Clear Queue
@@ -848,6 +851,13 @@
                             <span>Sync Now</span>
                         </button>
                     </div>
+                </div>
+
+                <!-- Notification permission and in-app test -->
+                <div class="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-2">
+                    <div class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-bell text-amber-500"></i> Revision Notifications</div>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Allow notifications and send a test alert. Reminders are checked while Trackio is open; background alerts need push-server setup.</p>
+                    <button type="button" onclick="sendTestNotification()" class="min-h-[42px] px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl">Enable & Test Notification</button>
                 </div>
 
                 <!-- Section 2: Theme Appearance -->
@@ -1632,21 +1642,58 @@
             } catch(e) {}
         }
 
-        function requestNotificationPermission() {
-            if ("Notification" in window && Notification.permission === "default") {
-                try {
-                    Notification.requestPermission();
-                } catch(e) {}
+        async function requestNotificationPermission() {
+            if (!("Notification" in window)) {
+                showToast("Notifications are not supported by this installed browser.", "warning");
+                return "unsupported";
+            }
+            try {
+                const permission = Notification.permission === "default"
+                    ? await Notification.requestPermission()
+                    : Notification.permission;
+                if (permission === "granted") showToast("Notification permission is enabled.", "success");
+                else showToast("Notification permission is " + permission + ". Enable it in Android app settings.", "warning");
+                return permission;
+            } catch (e) {
+                showToast("Could not request notification permission: " + (e.message || e), "error");
+                return "error";
             }
         }
 
-        function triggerSystemNotification(title, body) {
-            if ("Notification" in window && Notification.permission === "granted") {
-                try {
-                    new Notification(title, { body, icon: "/favicon.ico" });
-                } catch(e) {}
+        async function triggerSystemNotification(title, body) {
+            let delivered = false;
+            try {
+                if ("Notification" in window && Notification.permission === "granted") {
+                    if ("serviceWorker" in navigator) {
+                        const registration = await navigator.serviceWorker.ready;
+                        if (registration && registration.showNotification) {
+                            await registration.showNotification(title, {
+                                body,
+                                icon: "../icon-192.png",
+                                badge: "../icon-192.png",
+                                tag: "trackio-" + title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                                renotify: false,
+                                data: { url: "./" }
+                            });
+                            delivered = true;
+                        }
+                    }
+                    if (!delivered && !("serviceWorker" in navigator)) {
+                        new Notification(title, { body, icon: "../icon-192.png" });
+                        delivered = true;
+                    }
+                }
+            } catch (e) {
+                console.warn("System notification could not be shown:", e);
             }
-            showToast(`${title}: ${body}`, "info");
+            showToast(`${title}: ${body}`, delivered ? "success" : "info");
+            return delivered;
+        }
+
+        async function sendTestNotification() {
+            const permission = await requestNotificationPermission();
+            if (permission !== "granted") return;
+            await triggerSystemNotification("Trackio PRO Test", "Notifications are working while Trackio PRO is active.");
         }
 
         function checkRevisionReminders() {
@@ -1785,9 +1832,7 @@
                     renderChapters();
                 }
             });
-            document.addEventListener("click", () => {
-                requestNotificationPermission();
-            }, { once: true });
+            // Permission is requested only from the explicit Settings test button (user gesture).
         };
 
         function renderExamIconHTML(iconStr, extraClasses = "text-amber-400 text-xs shrink-0") {
@@ -2223,6 +2268,8 @@
                         appState = examsData[activeExamId].appState || {};
                         subjectOrder = examsData[activeExamId].subjectOrder || Object.keys(appState);
                         activeSubjectId = examsData[activeExamId].activeSubjectId || (subjectOrder[0] || "");
+                        const centralRecords = Array.isArray(examsData[activeExamId].mockTestAttempts) ? examsData[activeExamId].mockTestAttempts : [];
+                        localStorage.setItem("trackio_central_mock_attempts_" + activeExamId, JSON.stringify(centralRecords));
                     } else {
                         appState = {};
                         subjectOrder = [];
@@ -2435,7 +2482,8 @@
                 examsData[activeExamId] = {
                     appState: appState,
                     subjectOrder: subjectOrder,
-                    activeSubjectId: activeSubjectId
+                    activeSubjectId: activeSubjectId,
+                    mockTestAttempts: getCentralMockAttempts()
                 };
             }
             localStorage.setItem(EXAMS_LIST_KEY, JSON.stringify(examsList));
@@ -2488,6 +2536,106 @@
         }
 
         // --- Safe Stubs for Removed Stage Builder ---
+
+        // --- Central subject/full mock-test records (separate from chapter attempts) ---
+        function getCentralMockAttempts() {
+            try {
+                const key = "trackio_central_mock_attempts_" + (activeExamId || "default");
+                const stored = localStorage.getItem(key);
+                if (stored !== null) return JSON.parse(stored);
+                return (activeExamId && examsData[activeExamId] && Array.isArray(examsData[activeExamId].mockTestAttempts))
+                    ? examsData[activeExamId].mockTestAttempts : [];
+            } catch (e) { return []; }
+        }
+        function saveCentralMockAttempts(items) {
+            const key = "trackio_central_mock_attempts_" + (activeExamId || "default");
+            localStorage.setItem(key, JSON.stringify(items));
+            if (activeExamId) {
+                if (!examsData[activeExamId]) examsData[activeExamId] = { appState: appState, subjectOrder: subjectOrder, activeSubjectId: activeSubjectId };
+                examsData[activeExamId].mockTestAttempts = items;
+            }
+        }
+        const MOCK_TEST_PATTERNS = {
+            custom: { label: "Custom", questions: 100, marks: 1, negative: 0, minutes: 90 },
+            iti: { label: "ITI CBT", questions: 75, marks: 2, negative: 0, minutes: 120 },
+            rrb75: { label: "RRB CBT-1", questions: 75, marks: 1, negative: 1/3, minutes: 60 },
+            rrb100: { label: "RRB CBT-2 Part A", questions: 100, marks: 1, negative: 1/3, minutes: 90 },
+            isro: { label: "ISRO Technician (editable)", questions: 80, marks: 1, negative: 1/3, minutes: 90 },
+            drdo: { label: "DRDO CEPTAM (editable)", questions: 150, marks: 1, negative: 1/4, minutes: 120 }
+        };
+        function renderCentralMockTestPanel() {
+            const records = getCentralMockAttempts().sort((a,b) => (b.timestamp||0)-(a.timestamp||0));
+            const subOptions = Object.values(appState || {}).map(sub => '<option value="' + escapeHtml(sub.id) + '">' + escapeHtml(sub.name) + '</option>').join("");
+            return `
+                <div class="p-3 rounded-xl border border-sky-500/20 bg-sky-500/5 space-y-2">
+                    <h4 class="text-xs font-bold text-slate-800 dark:text-white">Add Subject / Full Mock Test</h4>
+                    <div class="grid grid-cols-2 gap-2">
+                        <select id="centralMockType" class="min-h-10 p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs" onchange="toggleCentralMockSubject()">
+                            <option value="full">Full Mock Test</option><option value="subject">Subject Test</option>
+                        </select>
+                        <select id="centralMockPattern" class="min-h-10 p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs" onchange="applyCentralMockPattern()">
+                            ${Object.entries(MOCK_TEST_PATTERNS).map(([key,p]) => '<option value="'+key+'">'+p.label+'</option>').join("")}
+                        </select>
+                    </div>
+                    <select id="centralMockSubject" class="hidden w-full min-h-10 p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs">${subOptions}</select>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="text-[10px] text-slate-500">Total questions<input id="centralMockTotal" type="number" min="1" value="100" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
+                        <label class="text-[10px] text-slate-500">Marks / question<input id="centralMockMarks" type="number" min="0.01" step="0.01" value="1" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
+                        <label class="text-[10px] text-slate-500">Negative fraction (e.g. 0.3333)<input id="centralMockNegative" type="number" min="0" step="0.0001" value="0.3333" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
+                        <label class="text-[10px] text-slate-500">Duration (minutes)<input id="centralMockDuration" type="number" min="1" value="90" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
+                        <label class="text-[10px] text-slate-500">Attempted<input id="centralMockAttempted" type="number" min="0" value="0" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
+                        <label class="text-[10px] text-slate-500">Correct<input id="centralMockCorrect" type="number" min="0" value="0" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
+                    </div>
+                    <button onclick="saveCentralMockAttempt()" class="w-full min-h-10 rounded-lg bg-sky-600 text-white text-xs font-bold">Save Mock Test Result</button>
+                    <p class="text-[10px] text-slate-500">Incorrect, unattempted, marks, score and accuracy are calculated automatically. Subject breakdown is optional and never assigned to chapters.</p>
+                </div>
+                <div class="space-y-2">
+                    <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300">Subject / Full Mock History (${records.length})</h4>
+                    ${records.length ? records.map(a => `
+                        <div class="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 flex justify-between gap-2">
+                            <div class="min-w-0"><div class="text-xs font-bold">${escapeHtml(a.type === "full" ? "Full Mock Test" : (a.subjectName || "Subject Test"))}</div>
+                            <div class="text-[10px] text-slate-500">${escapeHtml(a.patternLabel)} • ${escapeHtml(a.dateStr)}</div>
+                            <div class="text-[10px] text-slate-500">Attempted ${a.attempted} • Correct ${a.correct} • Incorrect ${a.incorrect} • Unattempted ${a.unattempted}</div></div>
+                            <div class="text-right shrink-0"><div class="text-sm font-black">${a.scorePct}%</div><div class="text-[10px] text-slate-500">${a.marksObtained}/${a.maxMarks}</div>
+                            <button onclick="deleteCentralMockAttempt('${a.id}')" class="text-[10px] text-rose-500 font-bold mt-1">Delete</button></div>
+                        </div>`).join("") : '<p class="text-xs text-slate-400 italic">No subject/full mock attempts recorded yet.</p>'}
+                </div>`;
+        }
+        function toggleCentralMockSubject() {
+            const type = document.getElementById("centralMockType")?.value;
+            document.getElementById("centralMockSubject")?.classList.toggle("hidden", type !== "subject");
+        }
+        function applyCentralMockPattern() {
+            const p = MOCK_TEST_PATTERNS[document.getElementById("centralMockPattern")?.value] || MOCK_TEST_PATTERNS.custom;
+            const set = (id,v) => { const el=document.getElementById(id); if(el) el.value=v; };
+            set("centralMockTotal",p.questions); set("centralMockMarks",p.marks);
+            set("centralMockNegative",p.negative.toFixed(4)); set("centralMockDuration",p.minutes);
+        }
+        function saveCentralMockAttempt() {
+            const num = id => Number(document.getElementById(id)?.value);
+            const type = document.getElementById("centralMockType")?.value || "full";
+            const total=num("centralMockTotal"), marks=num("centralMockMarks"), neg=num("centralMockNegative");
+            const duration=num("centralMockDuration"), attempted=num("centralMockAttempted"), correct=num("centralMockCorrect");
+            const subId=document.getElementById("centralMockSubject")?.value || "";
+            if (![total,marks,neg,duration,attempted,correct].every(Number.isFinite) || total<1 || marks<=0 || neg<0 || duration<1 || attempted<0 || attempted>total || correct<0 || correct>attempted) {
+                showToast("Check values: 0 ≤ correct ≤ attempted ≤ total, marks/duration must be positive.", "warning"); return;
+            }
+            if (type==="subject" && !subId) { showToast("Add/select a subject before saving a subject test.", "warning"); return; }
+            const incorrect=attempted-correct, unattempted=total-attempted, maxMarks=total*marks;
+            const obtained=Math.max(0,Math.min(maxMarks,correct*marks-incorrect*marks*neg));
+            const patternKey=document.getElementById("centralMockPattern")?.value || "custom";
+            const sub=appState[subId]; const now=Date.now();
+            const record={id:"mock_"+now+"_"+Math.random().toString(36).slice(2,8),timestamp:now,dateStr:new Date(now).toLocaleString(),type,subjectId:type==="subject"?subId:null,subjectName:type==="subject"?(sub?.name||"Subject"):"",patternKey,patternLabel:MOCK_TEST_PATTERNS[patternKey]?.label||"Custom",totalQuestions:total,marksPerQuestion:marks,negativeFraction:neg,durationMinutes:duration,attempted,correct,incorrect,unattempted,marksObtained:Math.round(obtained*100)/100,maxMarks,scorePct:Math.round(obtained/maxMarks*1000)/10,accuracyPct:attempted?Math.round(correct/attempted*1000)/10:null};
+            const records=getCentralMockAttempts(); records.push(record); saveCentralMockAttempts(records);
+            saveState(); openDashboardDetailModal("mock_tests"); showToast("Mock test result saved.", "success");
+        }
+        function deleteCentralMockAttempt(id) {
+            showConfirmDialog({title:"Delete Mock Test",message:"Delete this subject/full mock result?",itemName:"Mock test record",confirmText:"Delete",confirmColor:"rose",icon:"fa-trash-can"},()=>{
+                const records=getCentralMockAttempts(); const next=records.filter(a=>a.id!==id);
+                if(next.length===records.length){showToast("Mock test record not found.", "warning");return;}
+                saveCentralMockAttempts(next); saveState(); openDashboardDetailModal("mock_tests"); showToast("Mock test deleted.", "success");
+            });
+        }
 
         function openDashboardDetailModal(type) {
             const modal = document.getElementById("dashboardDetailModal");
@@ -2660,8 +2808,8 @@
                     </div>
                 `;
             } else if (type === 'mock_tests') {
-                titleEl.innerText = "Mock Test Attempts History";
-                subEl.innerText = "Comprehensive test attempts across all chapters";
+                titleEl.innerText = "Mock Test & Performance";
+                subEl.innerText = "Chapter, subject and full mock attempts — stored separately";
                 iconEl.className = "fa-solid fa-chart-line text-sm text-sky-500";
 
                 let totalAttempts = 0, totalQuestions = 0, totalCorrect = 0, bestScore = null;
@@ -2700,6 +2848,13 @@
                             });
                         }
                     });
+                });
+                const centralRecords = getCentralMockAttempts();
+                centralRecords.forEach(att => {
+                    totalAttempts++;
+                    totalQuestions += Number(att.attempted) || 0;
+                    totalCorrect += Number(att.correct) || 0;
+                    if (bestScore === null || Number(att.scorePct) > bestScore) bestScore = Number(att.scorePct);
                 });
                 const overallAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
                 attemptsList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -2748,6 +2903,7 @@
                             </div>
                         `}
                     </div>
+                    ${renderCentralMockTestPanel()}
                 `;
             } else if (type === 'weak') {
                 titleEl.innerText = "Weak / Priority Chapters";
@@ -2938,22 +3094,29 @@
                 confirmColor: "rose",
                 icon: "fa-trash-can"
             }, () => {
-                const targetSharedId = chap.sharedId;
-                Object.values(appState).forEach(sub => {
-                    sub.chapters.forEach(c => {
-                        if (c.sharedId === targetSharedId && Array.isArray(c.testAttempts)) {
-                            c.testAttempts = c.testAttempts.filter(a => a.id !== attemptId);
-                            const stats = getChapterTestStats(c);
-                            c.score = stats.latestAttempt ? stats.latestAttempt.scorePct : "";
-                            c.questionsAttempted = stats.latestAttempt ? stats.latestAttempt.questionsAttempted : "";
-                            c.questionsCorrect = stats.latestAttempt ? stats.latestAttempt.questionsCorrect : "";
-                        }
+                const targetSharedId = chap.sharedId || null;
+                let removed = 0;
+                Object.values(appState || {}).forEach(sub => {
+                    (sub.chapters || []).forEach(c => {
+                        const isTarget = targetSharedId ? c.sharedId === targetSharedId : c.id === chapterId;
+                        if (!isTarget || !Array.isArray(c.testAttempts)) return;
+                        const before = c.testAttempts.length;
+                        c.testAttempts = c.testAttempts.filter(a => String(a.id) !== String(attemptId));
+                        removed += before - c.testAttempts.length;
+                        const stats = getChapterTestStats(c);
+                        c.score = stats.latestAttempt ? stats.latestAttempt.scorePct : "";
+                        c.questionsAttempted = stats.latestAttempt ? stats.latestAttempt.questionsAttempted : "";
+                        c.questionsCorrect = stats.latestAttempt ? stats.latestAttempt.questionsCorrect : "";
                     });
                 });
+                if (!removed) {
+                    showToast("Attempt not found. Refresh the chapter history and try again.", "warning");
+                    return;
+                }
                 saveState();
                 renderChapters();
                 updateAnalytics();
-                showToast("Test attempt deleted.", "info");
+                showToast("Test attempt deleted.", "success");
             });
         }
 
@@ -3857,6 +4020,35 @@
                 `;
                 listEl.appendChild(card);
             });
+        }
+
+        async function shareSyllabusToGemini() {
+            const readyFiles = uploadedFilesList.filter(item => item && item.file);
+            if (!readyFiles.length) {
+                showToast("Add at least one PDF or image before opening Gemini.", "warning");
+                return;
+            }
+            const prompt = "Please extract the complete syllabus from the attached file(s). Return ONLY a clean numbered hierarchy of units, topics and chapter names. Preserve the original order, remove page numbers and repeated headers, do not invent topics, and keep chapter titles concise. If multiple files overlap, merge duplicates. I will review the result before importing it into Trackio PRO.";
+            try {
+                const files = readyFiles.map(item => item.file);
+                if (navigator.share && navigator.canShare && navigator.canShare({ files })) {
+                    await navigator.share({ title: "Trackio PRO – Syllabus extraction", text: prompt, files });
+                    showToast("Choose Gemini in Android's share sheet to scan the selected syllabus files.", "success");
+                    return;
+                }
+            } catch (e) {
+                if (e && (e.name === "AbortError")) return;
+                console.warn("File sharing to Gemini unavailable:", e);
+            }
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(prompt);
+                }
+            } catch (e) {}
+            const geminiUrl = "https://gemini.google.com/app";
+            const opened = window.open(geminiUrl, "_blank", "noopener");
+            if (!opened) window.location.href = geminiUrl;
+            showToast("Gemini opened (or browser fallback). Prompt copied if clipboard permission was available; attach the queued files manually.", "info");
         }
 
         // --- Core Scanning Workflow with Server-First & Client-Fallback ---
@@ -6998,8 +7190,18 @@
             const readinessProgressBarEl = document.getElementById("readinessProgressBar");
             if (readinessProgressBarEl) readinessProgressBarEl.style.width = `${readinessPct}%`;
             const readinessStatsTextEl = document.getElementById("readinessStatsText");
-            if (readinessStatsTextEl) readinessStatsTextEl.innerText = currentSubScoredCount > 0 ? `${currentSubScoredCount} chapters tested` : "Not Assessed";
+            if (readinessStatsTextEl) readinessStatsTextEl.innerText = currentSubScoredCount > 0 ? `${currentSubScoredCount} chapter/subject results` : "Not Assessed";
 
+            const centralAttempts = getCentralMockAttempts();
+            totalAttemptsGlobal += centralAttempts.length;
+            centralAttempts.forEach(a => {
+                totalAttemptedGlobal += Number(a.attempted) || 0;
+                totalCorrectGlobal += Number(a.correct) || 0;
+                if (a.type === "subject" && a.subjectId === activeSubjectId) {
+                    currentSubTotalScoresSum += Number(a.scorePct) || 0;
+                    currentSubScoredCount++;
+                }
+            });
             const mockTestCountEl = document.getElementById("mockTestCount");
             if (mockTestCountEl) mockTestCountEl.innerText = totalAttemptsGlobal;
             const mockTestSubTextEl = document.getElementById("mockTestSubText");
@@ -7280,6 +7482,7 @@
                 examsList,
                 activeExamId,
                 examsData,
+                centralMockAttempts: getCentralMockAttempts(),
                 customTimerPresets
             }, null, 2));
             const a = document.createElement('a');
@@ -7300,6 +7503,7 @@
                         if (imported.examsList) examsList = imported.examsList;
                         if (imported.examsData) examsData = imported.examsData;
                         if (imported.activeExamId) activeExamId = imported.activeExamId;
+                        if (Array.isArray(imported.centralMockAttempts)) saveCentralMockAttempts(imported.centralMockAttempts);
 
                         appState = imported.appState || {};
                         if (imported.subjectOrder) subjectOrder = imported.subjectOrder;
