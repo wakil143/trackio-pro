@@ -39,7 +39,7 @@
     <script>
         if ("serviceWorker" in navigator) {
             window.addEventListener("load", () => {
-                navigator.serviceWorker.register("./sw.js?v=5").catch(() => {});
+                navigator.serviceWorker.register("./sw.js?v=6").catch(err => console.warn("Service worker registration failed:", err));
             });
         }
     </script>
@@ -1356,25 +1356,45 @@
             // Never upload startup defaults while an existing cloud snapshot is being checked/restored.
             if (!currentUser || !db || cloudRestoreInProgress || cloudRestoreFailed) return Promise.resolve(false);
 
-            // Authoritative full set without { merge: true } to guarantee deleted subjects/stages/exams do not resurrect
-            return db.collection("users").doc(currentUser.uid).set({
-                appState: appState,
-                subjectOrder: subjectOrder,
-                stages: STAGES,
-                streakData: streakData,
-                studySessionsLog: studySessionsLog,
-                navTabsConfig: navTabsConfig,
-                examsList: examsList,
-                activeExamId: activeExamId,
-                examsData: examsData,
-                clientTimestamp: Date.now(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            }).then(() => {
-                updateCloudSyncStatus("synced");
+            // Capture an immutable snapshot now; serialize writes so an older, slower request
+            // can never finish after and overwrite a newer study-state snapshot.
+            const uid = currentUser.uid;
+            const saveVersion = ++firebaseSaveVersion;
+            let snapshot;
+            try {
+                snapshot = {
+                    appState: JSON.parse(JSON.stringify(appState || {})),
+                    subjectOrder: JSON.parse(JSON.stringify(subjectOrder || [])),
+                    stages: JSON.parse(JSON.stringify(STAGES || [])),
+                    streakData: JSON.parse(JSON.stringify(streakData || {})),
+                    studySessionsLog: JSON.parse(JSON.stringify(studySessionsLog || [])),
+                    navTabsConfig: JSON.parse(JSON.stringify(navTabsConfig || [])),
+                    examsList: JSON.parse(JSON.stringify(examsList || [])),
+                    activeExamId: activeExamId || "",
+                    examsData: JSON.parse(JSON.stringify(examsData || {})),
+                    clientTimestamp: Date.now()
+                };
+            } catch (snapshotError) {
+                console.error("Could not prepare Firebase snapshot:", snapshotError);
+                updateCloudSyncStatus("failed");
+                return Promise.resolve(false);
+            }
+
+            updateCloudSyncStatus("syncing");
+            const write = firebaseSaveQueue.catch(() => false).then(() =>
+                db.collection("users").doc(uid).set({
+                    ...snapshot,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                })
+            );
+            firebaseSaveQueue = write;
+
+            return write.then(() => {
+                if (saveVersion === firebaseSaveVersion) updateCloudSyncStatus("synced");
                 return true;
             }).catch(e => {
                 console.error("Firebase sync error:", e);
-                updateCloudSyncStatus("failed");
+                if (saveVersion === firebaseSaveVersion) updateCloudSyncStatus("failed");
                 return false;
             });
         }
@@ -1412,8 +1432,26 @@
                 if (cloudData.examsData) examsData = cloudData.examsData;
                 if (cloudData.activeExamId) activeExamId = cloudData.activeExamId;
 
-                appState = cloudData.appState;
-                if (cloudData.subjectOrder) subjectOrder = cloudData.subjectOrder;
+                // Legacy documents contain both root appState and examsData[activeExamId].appState.
+                // Prefer whichever copy contains more actual chapters, then reconcile both copies.
+                const rootState = cloudData.appState || {};
+                const activeBucket = (examsData && activeExamId && examsData[activeExamId]) || {};
+                const bucketState = activeBucket.appState || {};
+                const countChapters = state => Object.values(state || {}).reduce((total, subject) =>
+                    total + (Array.isArray(subject && subject.chapters) ? subject.chapters.length : 0), 0);
+                appState = countChapters(bucketState) > countChapters(rootState) ? bucketState : rootState;
+                subjectOrder = (countChapters(bucketState) > countChapters(rootState) && Array.isArray(activeBucket.subjectOrder))
+                    ? activeBucket.subjectOrder
+                    : (cloudData.subjectOrder || activeBucket.subjectOrder || Object.keys(appState));
+                activeSubjectId = activeBucket.activeSubjectId || (subjectOrder[0] || "");
+                if (activeExamId) {
+                    examsData[activeExamId] = {
+                        ...activeBucket,
+                        appState: appState,
+                        subjectOrder: subjectOrder,
+                        activeSubjectId: activeSubjectId
+                    };
+                }
                 if (cloudData.stages) STAGES = cloudData.stages;
                 if (cloudData.streakData) streakData = cloudData.streakData;
                 if (cloudData.studySessionsLog) studySessionsLog = cloudData.studySessionsLog;
@@ -1430,6 +1468,10 @@
                 localStorage.setItem(EXAMS_LIST_KEY, JSON.stringify(examsList));
                 localStorage.setItem(ACTIVE_EXAM_KEY, activeExamId);
                 localStorage.setItem(EXAMS_DATA_KEY, JSON.stringify(examsData));
+                if (activeExamId) {
+                    const centralAttempts = Array.isArray(examsData[activeExamId]?.mockTestAttempts) ? examsData[activeExamId].mockTestAttempts : [];
+                    localStorage.setItem("trackio_central_mock_attempts_" + activeExamId, JSON.stringify(centralAttempts));
+                }
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
                 localStorage.setItem(ORDER_KEY, JSON.stringify(subjectOrder));
                 localStorage.setItem(STAGES_KEY, JSON.stringify(STAGES));
@@ -1659,11 +1701,16 @@
         const NOTIFIED_CACHE_KEY = "trackio_notified_events_v1";
         let notifiedEvents = {};
 
+        let notifiedCacheLoaded = false;
+        let reminderCheckInProgress = false;
+
         function loadNotifiedCache() {
+            if (notifiedCacheLoaded) return;
             try {
                 const raw = localStorage.getItem(NOTIFIED_CACHE_KEY);
-                if (raw) notifiedEvents = JSON.parse(raw);
+                if (raw) notifiedEvents = JSON.parse(raw) || {};
             } catch(e) { notifiedEvents = {}; }
+            notifiedCacheLoaded = true;
         }
 
         function saveNotifiedCache() {
@@ -1697,98 +1744,119 @@
             }
         }
 
-        async function triggerSystemNotification(title, body) {
+        async function triggerSystemNotification(title, body, showInAppToast = false) {
             let delivered = false;
             try {
-                if ("Notification" in window && Notification.permission === "granted") {
-                    if ("serviceWorker" in navigator) {
-                        const registration = await navigator.serviceWorker.ready;
-                        if (registration && registration.showNotification) {
-                            await registration.showNotification(title, {
-                                body,
-                                icon: "../icon-192.png",
-                                badge: "../icon-192.png",
-                                tag: "trackio-" + title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-                                renotify: false,
-                                data: { url: "./" }
-                            });
-                            delivered = true;
-                        }
-                    }
-                    if (!delivered && !("serviceWorker" in navigator)) {
-                        new Notification(title, { body, icon: "../icon-192.png" });
+                if (!("Notification" in window) || Notification.permission !== "granted") return false;
+
+                // Prefer the registered service worker (required by modern Android Chrome).
+                // Do not wait forever for .ready: a missing/failed registration must not block fallback.
+                if ("serviceWorker" in navigator) {
+                    const registration = await Promise.race([
+                        navigator.serviceWorker.getRegistration(),
+                        new Promise(resolve => setTimeout(() => resolve(null), 4000))
+                    ]);
+                    if (registration && registration.showNotification) {
+                        await registration.showNotification(title, {
+                            body,
+                            icon: "../icon-192.png",
+                            badge: "../icon-192.png",
+                            tag: "trackio-" + title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                            renotify: false,
+                            data: { url: "./" }
+                        });
                         delivered = true;
+                    }
+                }
+
+                // Foreground fallback for browsers where the service worker is unavailable.
+                if (!delivered && document.visibilityState === "visible") {
+                    try {
+                        const notification = new Notification(title, { body, icon: "../icon-192.png" });
+                        notification.onclick = () => { window.focus(); notification.close(); };
+                        delivered = true;
+                    } catch (fallbackError) {
+                        console.warn("Foreground notification fallback unavailable:", fallbackError);
                     }
                 }
             } catch (e) {
                 console.warn("System notification could not be shown:", e);
             }
-            showToast(`${title}: ${body}`, delivered ? "success" : "info");
+            if (showInAppToast) {
+                showToast(delivered ? "Test notification sent successfully." : "Notification could not be delivered. Check Android and browser notification permissions.", delivered ? "success" : "warning");
+            }
             return delivered;
         }
 
         async function sendTestNotification() {
             const permission = await requestNotificationPermission();
             if (permission !== "granted") return;
-            await triggerSystemNotification("Trackio PRO Test", "Notifications are working while Trackio PRO is active.");
+            await triggerSystemNotification("Trackio PRO Test", "Notifications are working while Trackio is active.", true);
         }
 
-        function checkRevisionReminders() {
-            const now = Date.now();
-            loadNotifiedCache();
-            let hasNewNotification = false;
+        async function checkRevisionReminders() {
+            if (reminderCheckInProgress) return;
+            reminderCheckInProgress = true;
+            try {
+                const now = Date.now();
+                loadNotifiedCache();
 
-            Object.keys(examsData || {}).forEach(examId => {
-                const examObj = examsData[examId];
-                if (!examObj || !examObj.appState) return;
-                const examName = (examsList.find(e => e.id === examId)?.name) || "Exam";
+                // Permission must be granted first. Do not mark an event as sent when
+                // the OS/browser blocks it; otherwise enabling permission later never retries it.
+                if (!("Notification" in window) || Notification.permission !== "granted") return;
 
-                Object.keys(examObj.appState).forEach(subId => {
-                    const sub = examObj.appState[subId];
-                    if (!sub || !sub.chapters) return;
+                const dayKey = (() => {
+                    const d = new Date();
+                    return [d.getFullYear(), String(d.getMonth()+1).padStart(2,"0"), String(d.getDate()).padStart(2,"0")].join("-");
+                })();
 
-                    sub.chapters.forEach(chap => {
-                        if (!chap.stages || !chap.stages.s_active_recall_check) return;
+                for (const examId of Object.keys(examsData || {})) {
+                    const examObj = examsData[examId];
+                    if (!examObj || !examObj.appState) continue;
+                    const examName = (examsList.find(e => e.id === examId)?.name) || "Exam";
 
-                        const baseTime = chap.lastRevisedTimestamp || chap.stageTimestamps?.s_active_recall_check;
-                        const dueTime = chap.nextDueTimestamp || (baseTime ? baseTime + (168 * 3600 * 1000) : null);
-                        if (!dueTime) return;
-                        const diff = dueTime - now;
-                        const dayKey = new Date().toISOString().slice(0, 10);
+                    for (const subId of Object.keys(examObj.appState)) {
+                        const sub = examObj.appState[subId];
+                        if (!sub || !Array.isArray(sub.chapters)) continue;
 
-                        // 1. Overdue
-                        if (diff < 0) {
-                            const eventKey = `${chap.id}_overdue_${dayKey}`;
-                            if (!notifiedEvents[eventKey]) {
+                        for (const chap of sub.chapters) {
+                            if (!chap || !chap.stages || !chap.stages.s_active_recall_check) continue;
+                            const baseTime = Number(chap.lastRevisedTimestamp || chap.stageTimestamps?.s_active_recall_check || 0);
+                            const dueTime = Number(chap.nextDueTimestamp || (baseTime ? baseTime + (168 * 3600 * 1000) : 0));
+                            if (!dueTime || !Number.isFinite(dueTime)) continue;
+
+                            const diff = dueTime - now;
+                            let eventKey = "";
+                            let title = "";
+                            let body = "";
+
+                            if (diff < 0) {
+                                eventKey = `${chap.id}_overdue_${dayKey}`;
+                                title = `⚠️ Revision Overdue: ${chap.name}`;
+                                body = `[${examName} - ${sub.name}] This chapter is overdue for spaced revision!`;
+                            } else if (diff <= 2 * 3600 * 1000) {
+                                eventKey = `${chap.id}_due_now_${dayKey}`;
+                                title = `⏰ Revision Due Now: ${chap.name}`;
+                                body = `[${examName} - ${sub.name}] Time for your scheduled weekly spaced recall!`;
+                            } else if (diff <= 26 * 3600 * 1000 && diff >= 20 * 3600 * 1000) {
+                                eventKey = `${chap.id}_due_24h_${dayKey}`;
+                                title = `📅 Upcoming Revision: ${chap.name}`;
+                                body = `[${examName} - ${sub.name}] Scheduled for weekly revision tomorrow.`;
+                            }
+
+                            if (!eventKey || notifiedEvents[eventKey]) continue;
+                            const delivered = await triggerSystemNotification(title, body, false);
+                            if (delivered) {
                                 notifiedEvents[eventKey] = now;
-                                hasNewNotification = true;
-                                triggerSystemNotification(`⚠️ Revision Overdue: ${chap.name}`, `[${examName} - ${sub.name}] This chapter is overdue for spaced revision!`);
+                                saveNotifiedCache();
                             }
                         }
-                        // 2. Due now (within 2 hours)
-                        else if (diff <= 2 * 3600 * 1000) {
-                            const eventKey = `${chap.id}_due_now_${dayKey}`;
-                            if (!notifiedEvents[eventKey]) {
-                                notifiedEvents[eventKey] = now;
-                                hasNewNotification = true;
-                                triggerSystemNotification(`⏰ Revision Due Now: ${chap.name}`, `[${examName} - ${sub.name}] Time for your scheduled weekly spaced recall!`);
-                            }
-                        }
-                        // 3. 24h before due (20h to 26h window)
-                        else if (diff <= 26 * 3600 * 1000 && diff >= 20 * 3600 * 1000) {
-                            const eventKey = `${chap.id}_due_24h_${dayKey}`;
-                            if (!notifiedEvents[eventKey]) {
-                                notifiedEvents[eventKey] = now;
-                                hasNewNotification = true;
-                                triggerSystemNotification(`📅 Upcoming Revision: ${chap.name}`, `[${examName} - ${sub.name}] Scheduled for weekly revision tomorrow.`);
-                            }
-                        }
-                    });
-                });
-            });
-
-            if (hasNewNotification) {
-                saveNotifiedCache();
+                    }
+                }
+            } catch (e) {
+                console.warn("Revision reminder check failed:", e);
+            } finally {
+                reminderCheckInProgress = false;
             }
         }
 
@@ -1855,6 +1923,8 @@
         );
         let cloudRestoreInProgress = false;
         let cloudRestoreFailed = false;
+        let firebaseSaveQueue = Promise.resolve();
+        let firebaseSaveVersion = 0;
         const TIMER_PRESETS_KEY = "trackio_custom_timer_presets_v1";
         const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
         let customTimerPresets = [];
