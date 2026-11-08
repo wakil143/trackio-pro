@@ -2567,6 +2567,7 @@
             iti: { label: "ITI CBT", questions: 75, marks: 2, negative: 0, minutes: 120 },
             rrb75: { label: "RRB CBT-1", questions: 75, marks: 1, negative: 1/3, minutes: 60 },
             rrb100: { label: "RRB CBT-2 Part A", questions: 100, marks: 1, negative: 1/3, minutes: 90 },
+            rrbPartB: { label: "RRB ALP CBT-2 Part B (Electrician)", questions: 75, marks: 1, negative: 1/3, minutes: 60, subjectOnly: true },
             isro: { label: "ISRO Technician (editable)", questions: 80, marks: 1, negative: 1/3, minutes: 90 },
             drdo: { label: "DRDO CEPTAM (editable)", questions: 150, marks: 1, negative: 1/4, minutes: 120 }
         };
@@ -2613,10 +2614,20 @@
             document.getElementById("centralMockSubject")?.classList.toggle("hidden", type !== "subject");
         }
         function applyCentralMockPattern() {
-            const p = MOCK_TEST_PATTERNS[document.getElementById("centralMockPattern")?.value] || MOCK_TEST_PATTERNS.custom;
+            const patternKey = document.getElementById("centralMockPattern")?.value;
+            const p = MOCK_TEST_PATTERNS[patternKey] || MOCK_TEST_PATTERNS.custom;
             const set = (id,v) => { const el=document.getElementById(id); if(el) el.value=v; };
             set("centralMockTotal",p.questions); set("centralMockMarks",p.marks);
             set("centralMockNegative",p.negative.toFixed(4)); set("centralMockDuration",p.minutes);
+            if (p.subjectOnly) {
+                const typeEl = document.getElementById("centralMockType");
+                const subjectEl = document.getElementById("centralMockSubject");
+                if (typeEl) { typeEl.value = "subject"; toggleCentralMockSubject(); }
+                if (subjectEl) {
+                    const electricianOption = Array.from(subjectEl.options).find(o => /electrician/i.test(o.textContent || ""));
+                    if (electricianOption) subjectEl.value = electricianOption.value;
+                }
+            }
         }
         function saveCentralMockAttempt() {
             const num = id => Number(document.getElementById(id)?.value);
@@ -2628,9 +2639,12 @@
                 showToast("Check values: 0 ≤ correct ≤ attempted ≤ total, marks/duration must be positive.", "warning"); return;
             }
             if (type==="subject" && !subId) { showToast("Add/select a subject before saving a subject test.", "warning"); return; }
+            const patternKey=document.getElementById("centralMockPattern")?.value || "custom";
+            if (MOCK_TEST_PATTERNS[patternKey]?.subjectOnly && !/electrician/i.test(appState[subId]?.name || "")) {
+                showToast("RRB ALP CBT-2 Part B must be saved under the Electrician Trade subject.", "warning"); return;
+            }
             const incorrect=attempted-correct, unattempted=total-attempted, maxMarks=total*marks;
             const obtained=Math.max(0,Math.min(maxMarks,correct*marks-incorrect*marks*neg));
-            const patternKey=document.getElementById("centralMockPattern")?.value || "custom";
             const sub=appState[subId]; const now=Date.now();
             const record={id:"mock_"+now+"_"+Math.random().toString(36).slice(2,8),timestamp:now,dateStr:new Date(now).toLocaleString(),type,subjectId:type==="subject"?subId:null,subjectName:type==="subject"?(sub?.name||"Subject"):"",patternKey,patternLabel:MOCK_TEST_PATTERNS[patternKey]?.label||"Custom",totalQuestions:total,marksPerQuestion:marks,negativeFraction:neg,durationMinutes:duration,attempted,correct,incorrect,unattempted,marksObtained:Math.round(obtained*100)/100,maxMarks,scorePct:Math.round(obtained/maxMarks*1000)/10,accuracyPct:attempted?Math.round(correct/attempted*1000)/10:null};
             const records=getCentralMockAttempts(); records.push(record); saveCentralMockAttempts(records);
