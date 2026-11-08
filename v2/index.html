@@ -754,6 +754,9 @@
                                 <i id="scanAllBtnIcon" class="fa-solid fa-play"></i>
                                 <span id="scanAllBtnText">Scan Selected Files (0)</span>
                             </button>
+                            <button type="button" onclick="shareSyllabusToGemini()" class="min-h-[40px] px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer">
+                                <i class="fa-solid fa-arrow-up-right-from-square"></i> Open with Gemini
+                            </button>
 
                             <button id="clearAllBtn" onclick="clearAllFilesFromQueue()" disabled class="min-h-[40px] px-3.5 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl transition-all disabled:opacity-40 select-none cursor-pointer">
                                 <i class="fa-solid fa-trash-can text-rose-500"></i> Clear Queue
@@ -1632,21 +1635,58 @@
             } catch(e) {}
         }
 
-        function requestNotificationPermission() {
-            if ("Notification" in window && Notification.permission === "default") {
-                try {
-                    Notification.requestPermission();
-                } catch(e) {}
+        async function requestNotificationPermission() {
+            if (!("Notification" in window)) {
+                showToast("Notifications are not supported by this installed browser.", "warning");
+                return "unsupported";
+            }
+            try {
+                const permission = Notification.permission === "default"
+                    ? await Notification.requestPermission()
+                    : Notification.permission;
+                if (permission === "granted") showToast("Notification permission is enabled.", "success");
+                else showToast("Notification permission is " + permission + ". Enable it in Android app settings.", "warning");
+                return permission;
+            } catch (e) {
+                showToast("Could not request notification permission: " + (e.message || e), "error");
+                return "error";
             }
         }
 
-        function triggerSystemNotification(title, body) {
-            if ("Notification" in window && Notification.permission === "granted") {
-                try {
-                    new Notification(title, { body, icon: "/favicon.ico" });
-                } catch(e) {}
+        async function triggerSystemNotification(title, body) {
+            let delivered = false;
+            try {
+                if ("Notification" in window && Notification.permission === "granted") {
+                    if ("serviceWorker" in navigator) {
+                        const registration = await navigator.serviceWorker.ready;
+                        if (registration && registration.showNotification) {
+                            await registration.showNotification(title, {
+                                body,
+                                icon: "../icon-192.png",
+                                badge: "../icon-192.png",
+                                tag: "trackio-" + title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                                renotify: false,
+                                data: { url: "./" }
+                            });
+                            delivered = true;
+                        }
+                    }
+                    if (!delivered && !("serviceWorker" in navigator)) {
+                        new Notification(title, { body, icon: "../icon-192.png" });
+                        delivered = true;
+                    }
+                }
+            } catch (e) {
+                console.warn("System notification could not be shown:", e);
             }
-            showToast(`${title}: ${body}`, "info");
+            showToast(`${title}: ${body}`, delivered ? "success" : "info");
+            return delivered;
+        }
+
+        async function sendTestNotification() {
+            const permission = await requestNotificationPermission();
+            if (permission !== "granted") return;
+            await triggerSystemNotification("Trackio PRO Test", "Notifications are working while Trackio PRO is active.");
         }
 
         function checkRevisionReminders() {
@@ -2938,22 +2978,29 @@
                 confirmColor: "rose",
                 icon: "fa-trash-can"
             }, () => {
-                const targetSharedId = chap.sharedId;
-                Object.values(appState).forEach(sub => {
-                    sub.chapters.forEach(c => {
-                        if (c.sharedId === targetSharedId && Array.isArray(c.testAttempts)) {
-                            c.testAttempts = c.testAttempts.filter(a => a.id !== attemptId);
-                            const stats = getChapterTestStats(c);
-                            c.score = stats.latestAttempt ? stats.latestAttempt.scorePct : "";
-                            c.questionsAttempted = stats.latestAttempt ? stats.latestAttempt.questionsAttempted : "";
-                            c.questionsCorrect = stats.latestAttempt ? stats.latestAttempt.questionsCorrect : "";
-                        }
+                const targetSharedId = chap.sharedId || null;
+                let removed = 0;
+                Object.values(appState || {}).forEach(sub => {
+                    (sub.chapters || []).forEach(c => {
+                        const isTarget = targetSharedId ? c.sharedId === targetSharedId : c.id === chapterId;
+                        if (!isTarget || !Array.isArray(c.testAttempts)) return;
+                        const before = c.testAttempts.length;
+                        c.testAttempts = c.testAttempts.filter(a => String(a.id) !== String(attemptId));
+                        removed += before - c.testAttempts.length;
+                        const stats = getChapterTestStats(c);
+                        c.score = stats.latestAttempt ? stats.latestAttempt.scorePct : "";
+                        c.questionsAttempted = stats.latestAttempt ? stats.latestAttempt.questionsAttempted : "";
+                        c.questionsCorrect = stats.latestAttempt ? stats.latestAttempt.questionsCorrect : "";
                     });
                 });
+                if (!removed) {
+                    showToast("Attempt not found. Refresh the chapter history and try again.", "warning");
+                    return;
+                }
                 saveState();
                 renderChapters();
                 updateAnalytics();
-                showToast("Test attempt deleted.", "info");
+                showToast("Test attempt deleted.", "success");
             });
         }
 
@@ -3857,6 +3904,35 @@
                 `;
                 listEl.appendChild(card);
             });
+        }
+
+        async function shareSyllabusToGemini() {
+            const readyFiles = uploadedFilesList.filter(item => item && item.file && (item.status === "pending" || item.status === "error"));
+            if (!readyFiles.length) {
+                showToast("Add at least one PDF or image before opening Gemini.", "warning");
+                return;
+            }
+            const prompt = "Please extract the complete syllabus from the attached file(s). Return ONLY a clean numbered hierarchy of units, topics and chapter names. Preserve the original order, remove page numbers and repeated headers, do not invent topics, and keep chapter titles concise. If multiple files overlap, merge duplicates. I will review the result before importing it into Trackio PRO.";
+            try {
+                const files = readyFiles.map(item => item.file);
+                if (navigator.share && navigator.canShare && navigator.canShare({ files })) {
+                    await navigator.share({ title: "Trackio PRO – Syllabus extraction", text: prompt, files });
+                    showToast("Choose Gemini in Android's share sheet to scan the selected syllabus files.", "success");
+                    return;
+                }
+            } catch (e) {
+                if (e && (e.name === "AbortError")) return;
+                console.warn("File sharing to Gemini unavailable:", e);
+            }
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(prompt);
+                }
+            } catch (e) {}
+            const geminiUrl = "https://gemini.google.com/app";
+            const opened = window.open(geminiUrl, "_blank", "noopener");
+            if (!opened) window.location.href = geminiUrl;
+            showToast("Gemini opened (or browser fallback). Prompt copied if clipboard permission was available; attach the queued files manually.", "info");
         }
 
         // --- Core Scanning Workflow with Server-First & Client-Fallback ---
