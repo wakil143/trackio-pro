@@ -2268,6 +2268,8 @@
                         appState = examsData[activeExamId].appState || {};
                         subjectOrder = examsData[activeExamId].subjectOrder || Object.keys(appState);
                         activeSubjectId = examsData[activeExamId].activeSubjectId || (subjectOrder[0] || "");
+                        const centralRecords = Array.isArray(examsData[activeExamId].mockTestAttempts) ? examsData[activeExamId].mockTestAttempts : [];
+                        localStorage.setItem("trackio_central_mock_attempts_" + activeExamId, JSON.stringify(centralRecords));
                     } else {
                         appState = {};
                         subjectOrder = [];
@@ -2480,7 +2482,8 @@
                 examsData[activeExamId] = {
                     appState: appState,
                     subjectOrder: subjectOrder,
-                    activeSubjectId: activeSubjectId
+                    activeSubjectId: activeSubjectId,
+                    mockTestAttempts: getCentralMockAttempts()
                 };
             }
             localStorage.setItem(EXAMS_LIST_KEY, JSON.stringify(examsList));
@@ -2536,11 +2539,21 @@
 
         // --- Central subject/full mock-test records (separate from chapter attempts) ---
         function getCentralMockAttempts() {
-            try { return JSON.parse(localStorage.getItem("trackio_central_mock_attempts_" + (activeExamId || "default")) || "[]"); }
-            catch (e) { return []; }
+            try {
+                const key = "trackio_central_mock_attempts_" + (activeExamId || "default");
+                const stored = localStorage.getItem(key);
+                if (stored !== null) return JSON.parse(stored);
+                return (activeExamId && examsData[activeExamId] && Array.isArray(examsData[activeExamId].mockTestAttempts))
+                    ? examsData[activeExamId].mockTestAttempts : [];
+            } catch (e) { return []; }
         }
         function saveCentralMockAttempts(items) {
-            localStorage.setItem("trackio_central_mock_attempts_" + (activeExamId || "default"), JSON.stringify(items));
+            const key = "trackio_central_mock_attempts_" + (activeExamId || "default");
+            localStorage.setItem(key, JSON.stringify(items));
+            if (activeExamId) {
+                if (!examsData[activeExamId]) examsData[activeExamId] = { appState: appState, subjectOrder: subjectOrder, activeSubjectId: activeSubjectId };
+                examsData[activeExamId].mockTestAttempts = items;
+            }
         }
         const MOCK_TEST_PATTERNS = {
             custom: { label: "Custom", questions: 100, marks: 1, negative: 0, minutes: 90 },
