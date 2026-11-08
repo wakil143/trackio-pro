@@ -7462,6 +7462,7 @@
                 examsList,
                 activeExamId,
                 examsData,
+                centralMockAttempts: getCentralMockAttempts(),
                 customTimerPresets
             }, null, 2));
             const a = document.createElement('a');
@@ -7482,6 +7483,7 @@
                         if (imported.examsList) examsList = imported.examsList;
                         if (imported.examsData) examsData = imported.examsData;
                         if (imported.activeExamId) activeExamId = imported.activeExamId;
+                        if (Array.isArray(imported.centralMockAttempts)) saveCentralMockAttempts(imported.centralMockAttempts);
 
                         appState = imported.appState || {};
                         if (imported.subjectOrder) subjectOrder = imported.subjectOrder;
