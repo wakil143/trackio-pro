@@ -1353,74 +1353,106 @@
         }
 
         function saveToFirebase() {
-            if (currentUser && db) {
-                // Authoritative full set without { merge: true } to guarantee deleted subjects/stages/exams do not resurrect
-                db.collection("users").doc(currentUser.uid).set({
-                    appState: appState,
-                    subjectOrder: subjectOrder,
-                    stages: STAGES,
-                    streakData: streakData,
-                    studySessionsLog: studySessionsLog,
-                    navTabsConfig: navTabsConfig,
-                    examsList: examsList,
-                    activeExamId: activeExamId,
-                    examsData: examsData,
-                    clientTimestamp: Date.now(),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }).catch(e => console.error("Firebase sync error:", e));
-            }
+            // Never upload startup defaults while an existing cloud snapshot is being checked/restored.
+            if (!currentUser || !db || cloudRestoreInProgress) return Promise.resolve(false);
+
+            // Authoritative full set without { merge: true } to guarantee deleted subjects/stages/exams do not resurrect
+            return db.collection("users").doc(currentUser.uid).set({
+                appState: appState,
+                subjectOrder: subjectOrder,
+                stages: STAGES,
+                streakData: streakData,
+                studySessionsLog: studySessionsLog,
+                navTabsConfig: navTabsConfig,
+                examsList: examsList,
+                activeExamId: activeExamId,
+                examsData: examsData,
+                clientTimestamp: Date.now(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }).then(() => {
+                updateCloudSyncStatus("synced");
+                return true;
+            }).catch(e => {
+                console.error("Firebase sync error:", e);
+                updateCloudSyncStatus("failed");
+                return false;
+            });
         }
 
         function loadFromFirebase() {
-            if (currentUser && db) {
-                db.collection("users").doc(currentUser.uid).get().then(doc => {
-                    if (doc.exists && doc.data().appState) {
-                        const localLastEdit = parseInt(localStorage.getItem(LAST_EDIT_KEY) || "0", 10);
-                        const cloudTime = doc.data().clientTimestamp || 0;
-                        if (localLastEdit > cloudTime && cloudTime > 0) {
-                            console.log("Local state is newer than cloud snapshot; syncing local changes up.");
-                            saveToFirebase();
-                            return;
-                        }
+            if (!currentUser || !db) return Promise.resolve(false);
 
-                        if (doc.data().examsList) examsList = doc.data().examsList;
-                        if (doc.data().examsData) examsData = doc.data().examsData;
-                        if (doc.data().activeExamId) activeExamId = doc.data().activeExamId;
+            cloudRestoreInProgress = true;
+            updateCloudSyncStatus("syncing");
 
-                        appState = doc.data().appState;
-                        if (doc.data().subjectOrder) subjectOrder = doc.data().subjectOrder;
-                        if (doc.data().stages) STAGES = doc.data().stages;
-                        if (doc.data().streakData) streakData = doc.data().streakData;
-                        if (doc.data().studySessionsLog) studySessionsLog = doc.data().studySessionsLog;
-                        if (doc.data().navTabsConfig && Array.isArray(doc.data().navTabsConfig)) {
-                            navTabsConfig = doc.data().navTabsConfig.filter(t => t && t.id !== "timer" && t.id !== "analytics" && t.id !== "studio");
-                            if (!navTabsConfig.some(t => t.id === "home")) {
-                                navTabsConfig.unshift({ id: "home", name: "Home", icon: "fa-house", color: "text-sky-600 dark:text-sky-400", action: "scrollToTop", visible: true });
-                            }
-                            if (!navTabsConfig.some(t => t.id === "settings")) {
-                                navTabsConfig.push({ id: "settings", name: "Settings", icon: "fa-gear", color: "text-purple-600 dark:text-purple-400", action: "openSettingsModal", visible: true });
-                            }
-                        }
+            return db.collection("users").doc(currentUser.uid).get().then(doc => {
+                if (!doc.exists) {
+                    // A missing document is safe to initialize from this device.
+                    cloudRestoreInProgress = false;
+                    return saveToFirebase();
+                }
 
-                        localStorage.setItem(EXAMS_LIST_KEY, JSON.stringify(examsList));
-                        localStorage.setItem(ACTIVE_EXAM_KEY, activeExamId);
-                        localStorage.setItem(EXAMS_DATA_KEY, JSON.stringify(examsData));
-                        localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
-                        localStorage.setItem(ORDER_KEY, JSON.stringify(subjectOrder));
-                        localStorage.setItem(STAGES_KEY, JSON.stringify(STAGES));
-                        localStorage.setItem(STREAK_KEY, JSON.stringify(streakData));
-                        localStorage.setItem(SESSION_KEY, JSON.stringify(studySessionsLog));
-                        localStorage.setItem(NAV_KEY, JSON.stringify(navTabsConfig));
+                const cloudData = doc.data();
+                if (!cloudData || !cloudData.appState) {
+                    throw new Error("Cloud document exists but does not contain a valid Trackio appState. No cloud data was changed.");
+                }
 
-                        renderExamTabs();
-                        renderWorkflowLegend();
-                        renderSubjectTabs();
-                        renderChapters();
-                        renderBottomNav();
-                        updateAnalytics();
+                const localLastEdit = parseInt(localStorage.getItem(LAST_EDIT_KEY) || "0", 10);
+                const cloudTime = cloudData.clientTimestamp || 0;
+
+                // Only trust a newer local timestamp if actual local study data existed before this page started.
+                if (HAS_PREEXISTING_LOCAL_STATE && localLastEdit > cloudTime && cloudTime > 0) {
+                    console.log("Pre-existing local study data is newer than cloud snapshot; syncing local changes up.");
+                    cloudRestoreInProgress = false;
+                    return saveToFirebase();
+                }
+
+                if (cloudData.examsList) examsList = cloudData.examsList;
+                if (cloudData.examsData) examsData = cloudData.examsData;
+                if (cloudData.activeExamId) activeExamId = cloudData.activeExamId;
+
+                appState = cloudData.appState;
+                if (cloudData.subjectOrder) subjectOrder = cloudData.subjectOrder;
+                if (cloudData.stages) STAGES = cloudData.stages;
+                if (cloudData.streakData) streakData = cloudData.streakData;
+                if (cloudData.studySessionsLog) studySessionsLog = cloudData.studySessionsLog;
+                if (cloudData.navTabsConfig && Array.isArray(cloudData.navTabsConfig)) {
+                    navTabsConfig = cloudData.navTabsConfig.filter(t => t && t.id !== "timer" && t.id !== "analytics" && t.id !== "studio");
+                    if (!navTabsConfig.some(t => t.id === "home")) {
+                        navTabsConfig.unshift({ id: "home", name: "Home", icon: "fa-house", color: "text-sky-600 dark:text-sky-400", action: "scrollToTop", visible: true });
                     }
-                }).catch(e => console.error("Firebase fetch error:", e));
-            }
+                    if (!navTabsConfig.some(t => t.id === "settings")) {
+                        navTabsConfig.push({ id: "settings", name: "Settings", icon: "fa-gear", color: "text-purple-600 dark:text-purple-400", action: "openSettingsModal", visible: true });
+                    }
+                }
+
+                localStorage.setItem(EXAMS_LIST_KEY, JSON.stringify(examsList));
+                localStorage.setItem(ACTIVE_EXAM_KEY, activeExamId);
+                localStorage.setItem(EXAMS_DATA_KEY, JSON.stringify(examsData));
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+                localStorage.setItem(ORDER_KEY, JSON.stringify(subjectOrder));
+                localStorage.setItem(STAGES_KEY, JSON.stringify(STAGES));
+                localStorage.setItem(STREAK_KEY, JSON.stringify(streakData));
+                localStorage.setItem(SESSION_KEY, JSON.stringify(studySessionsLog));
+                localStorage.setItem(NAV_KEY, JSON.stringify(navTabsConfig));
+                if (cloudTime) localStorage.setItem(LAST_EDIT_KEY, String(cloudTime));
+
+                renderExamTabs();
+                renderWorkflowLegend();
+                renderSubjectTabs();
+                renderChapters();
+                renderBottomNav();
+                updateAnalytics();
+
+                cloudRestoreInProgress = false;
+                updateCloudSyncStatus("synced");
+                return true;
+            }).catch(e => {
+                cloudRestoreInProgress = false;
+                console.error("Firebase fetch error:", e);
+                updateCloudSyncStatus("failed");
+                return false;
+            });
         }
 
         // Universal Initial Blank Starter Template
@@ -1813,6 +1845,13 @@
         const NAV_KEY = "trackio_nav_universal_v18";
         const GEMINI_KEY = "trackio_gemini_api_key";
         const LAST_EDIT_KEY = "trackio_last_edit_time";
+        // Capture whether genuine local study data existed before startup initializes defaults.
+        // This prevents fresh/default state from being mistaken for newer user data during cloud restore.
+        const HAS_PREEXISTING_LOCAL_STATE = Boolean(
+            (localStorage.getItem(EXAMS_LIST_KEY) && localStorage.getItem(EXAMS_DATA_KEY)) ||
+            localStorage.getItem(STORAGE_KEY)
+        );
+        let cloudRestoreInProgress = false;
         const TIMER_PRESETS_KEY = "trackio_custom_timer_presets_v1";
         const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
         let customTimerPresets = [];
