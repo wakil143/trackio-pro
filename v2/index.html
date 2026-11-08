@@ -1125,8 +1125,15 @@
                 if (user) {
                     if (authBtnText) authBtnText.innerText = user.displayName ? user.displayName.split(' ')[0] : "Logged In";
                     updateCloudSyncStatus("syncing");
-                    loadFromFirebase();
+                    // Wait until localStorage has been loaded before deciding sync direction.
+                    if (appStartupReady) {
+                        loadFromFirebase();
+                    } else {
+                        cloudRestoreInProgress = true;
+                    }
                 } else {
+                    cloudRestoreInProgress = false;
+                    cloudRestoreFailed = false;
                     if (authBtnText) authBtnText.innerText = "Sign In with Google";
                     updateCloudSyncStatus("local");
                 }
@@ -1421,11 +1428,29 @@
                 const localLastEdit = parseInt(localStorage.getItem(LAST_EDIT_KEY) || "0", 10);
                 const cloudTime = cloudData.clientTimestamp || 0;
 
-                // Only trust a newer local timestamp if actual local study data existed before this page started.
-                if (HAS_PREEXISTING_LOCAL_STATE && localLastEdit > cloudTime && cloudTime > 0) {
-                    console.log("Pre-existing local study data is newer than cloud snapshot; syncing local changes up.");
-                    cloudRestoreInProgress = false;
-                    return saveToFirebase();
+                // Never auto-upload local data merely because its device timestamp is newer.
+                // Startup migrations/default initialization can advance that timestamp.
+                // Preserve a newer local snapshot locally for recovery, then restore cloud safely.
+                if (HAS_PREEXISTING_LOCAL_STATE && localLastEdit > cloudTime) {
+                    try {
+                        const localBackup = {
+                            savedAt: Date.now(),
+                            clientTimestamp: localLastEdit,
+                            examsList: examsList,
+                            activeExamId: activeExamId,
+                            examsData: examsData,
+                            appState: appState,
+                            subjectOrder: subjectOrder,
+                            activeSubjectId: activeSubjectId,
+                            streakData: streakData,
+                            studySessionsLog: studySessionsLog,
+                            stages: STAGES
+                        };
+                        localStorage.setItem("trackio_pre_cloud_restore_backup_" + currentUser.uid, JSON.stringify(localBackup));
+                        console.warn("Newer local snapshot preserved as a recovery backup; cloud restore remains authoritative.");
+                    } catch (backupError) {
+                        console.warn("Could not create pre-restore local backup:", backupError);
+                    }
                 }
 
                 if (cloudData.examsList) examsList = cloudData.examsList;
@@ -1923,6 +1948,7 @@
         );
         let cloudRestoreInProgress = false;
         let cloudRestoreFailed = false;
+        let appStartupReady = false;
         let firebaseSaveQueue = Promise.resolve();
         let firebaseSaveVersion = 0;
         const TIMER_PRESETS_KEY = "trackio_custom_timer_presets_v1";
@@ -1930,7 +1956,12 @@
         let customTimerPresets = [];
 
         window.onload = function() {
+            // If authentication completed before page startup, block all writes until
+            // local state is loaded and the cloud restore has been started.
+            if (currentUser) cloudRestoreInProgress = true;
             loadState();
+            appStartupReady = true;
+            if (currentUser) loadFromFirebase();
 
             renderExamTabs();
             renderWorkflowLegend();
