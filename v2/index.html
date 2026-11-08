@@ -1354,7 +1354,7 @@
 
         function saveToFirebase() {
             // Never upload startup defaults while an existing cloud snapshot is being checked/restored.
-            if (!currentUser || !db || cloudRestoreInProgress) return Promise.resolve(false);
+            if (!currentUser || !db || cloudRestoreInProgress || cloudRestoreFailed) return Promise.resolve(false);
 
             // Authoritative full set without { merge: true } to guarantee deleted subjects/stages/exams do not resurrect
             return db.collection("users").doc(currentUser.uid).set({
@@ -1383,6 +1383,7 @@
             if (!currentUser || !db) return Promise.resolve(false);
 
             cloudRestoreInProgress = true;
+            cloudRestoreFailed = false;
             updateCloudSyncStatus("syncing");
 
             return db.collection("users").doc(currentUser.uid).get().then(doc => {
@@ -1449,6 +1450,7 @@
                 return true;
             }).catch(e => {
                 cloudRestoreInProgress = false;
+                cloudRestoreFailed = true; // Fail closed: don't let startup defaults overwrite an unreadable cloud document.
                 console.error("Firebase fetch error:", e);
                 updateCloudSyncStatus("failed");
                 return false;
@@ -1852,6 +1854,7 @@
             localStorage.getItem(STORAGE_KEY)
         );
         let cloudRestoreInProgress = false;
+        let cloudRestoreFailed = false;
         const TIMER_PRESETS_KEY = "trackio_custom_timer_presets_v1";
         const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
         let customTimerPresets = [];
