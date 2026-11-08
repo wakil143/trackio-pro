@@ -28,6 +28,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
 
         <!-- Static Web App Manifest & PWA Icons -->
     <link rel="manifest" href="./manifest.json">
@@ -39,7 +40,7 @@
     <script>
         if ("serviceWorker" in navigator) {
             window.addEventListener("load", () => {
-                navigator.serviceWorker.register("./sw.js?v=6").catch(err => console.warn("Service worker registration failed:", err));
+                navigator.serviceWorker.register("./sw.js?v=7").catch(err => console.warn("Service worker registration failed:", err));
             });
         }
     </script>
@@ -1083,6 +1084,7 @@
 
     <!-- Application Script Logic -->
     <script>
+        const FCM_VAPID_PUBLIC_KEY = "BP64IRA9SVZ_1L5PkukEc68zS1Nn0I0bDItjBke5ve1W3YeEzo-asAPe_jkTFR1tMSk9HeVegq3wHEYDMWDKo80";
         const firebaseConfig = {
             apiKey: "AIzaSyDSdF3f-vAOxlqh75yNC9MdvDJbEeg_F_c",
             authDomain: "trackio-pro.firebaseapp.com",
@@ -1095,6 +1097,27 @@
         let db = null;
         let auth = null;
         let currentUser = null;
+        let messaging = null;
+
+        async function registerFCMDevice() {
+            if (!currentUser || !db) throw new Error("Sign in with Google before enabling push notifications.");
+            if (!("serviceWorker" in navigator) || !("Notification" in window)) throw new Error("This browser does not support web push notifications.");
+            if (Notification.permission !== "granted") throw new Error("Notification permission is not granted.");
+            if (!messaging) throw new Error("Firebase Messaging is unavailable. Open Trackio PRO in Chrome over HTTPS.");
+            const registration = await navigator.serviceWorker.getRegistration(new URL("./", window.location.href).href);
+            if (!registration) throw new Error("Trackio PRO service worker is not registered. Refresh and try again.");
+            const token = await messaging.getToken({ vapidKey: FCM_VAPID_PUBLIC_KEY, serviceWorkerRegistration: registration });
+            if (!token) throw new Error("Firebase did not return a push token. Check VAPID key and browser support.");
+            await db.collection("users").doc(currentUser.uid).collection("fcmTokens").doc(encodeURIComponent(token)).set({
+                token: token,
+                platform: "web",
+                userAgent: String(navigator.userAgent || "").slice(0, 300),
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                enabled: true
+            }, { merge: true });
+            return token;
+        }
 
         function updateCloudSyncStatus(status) {
             const badge = document.getElementById("cloudSyncStatusBadge");
@@ -1118,6 +1141,14 @@
             firebase.initializeApp(firebaseConfig);
             auth = firebase.auth();
             db = firebase.firestore();
+            if (firebase.messaging) {
+                try { messaging = firebase.messaging(); } catch (messagingError) { console.warn("Firebase Messaging unavailable:", messagingError); }
+                if (messaging) messaging.onMessage(payload => {
+                    const title = (payload.notification && payload.notification.title) || (payload.data && payload.data.title) || "Trackio PRO";
+                    const body = (payload.notification && payload.notification.body) || (payload.data && payload.data.body) || "You have a revision reminder.";
+                    showToast(title + (body ? ": " + body : ""), "info");
+                });
+            }
 
             auth.onAuthStateChanged(user => {
                 currentUser = user;
@@ -1818,7 +1849,14 @@
         async function sendTestNotification() {
             const permission = await requestNotificationPermission();
             if (permission !== "granted") return;
-            await triggerSystemNotification("Trackio PRO Test", "Notifications are working while Trackio is active.", true);
+            try {
+                await registerFCMDevice();
+                showToast("FCM push registration successful for this device.", "success");
+                await triggerSystemNotification("Trackio PRO Test", "Local notification test passed; FCM token is registered.", true);
+            } catch (e) {
+                console.error("FCM registration failed:", e);
+                showToast("FCM registration failed: " + (e.message || e), "error");
+            }
         }
 
         async function checkRevisionReminders() {
