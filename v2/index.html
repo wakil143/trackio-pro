@@ -853,6 +853,13 @@
                     </div>
                 </div>
 
+                <!-- Notification permission and in-app test -->
+                <div class="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-2">
+                    <div class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-bell text-amber-500"></i> Revision Notifications</div>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Allow notifications and send a test alert. Reminders are checked while Trackio is open; background alerts need push-server setup.</p>
+                    <button type="button" onclick="sendTestNotification()" class="min-h-[42px] px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl">Enable & Test Notification</button>
+                </div>
+
                 <!-- Section 2: Theme Appearance -->
                 <div class="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-2.5">
                     <div class="flex items-center justify-between">
@@ -1825,9 +1832,7 @@
                     renderChapters();
                 }
             });
-            document.addEventListener("click", () => {
-                requestNotificationPermission();
-            }, { once: true });
+            // Permission is requested only from the explicit Settings test button (user gesture).
         };
 
         function renderExamIconHTML(iconStr, extraClasses = "text-amber-400 text-xs shrink-0") {
@@ -7165,9 +7170,18 @@
             const readinessProgressBarEl = document.getElementById("readinessProgressBar");
             if (readinessProgressBarEl) readinessProgressBarEl.style.width = `${readinessPct}%`;
             const readinessStatsTextEl = document.getElementById("readinessStatsText");
-            if (readinessStatsTextEl) readinessStatsTextEl.innerText = currentSubScoredCount > 0 ? `${currentSubScoredCount} chapters tested` : "Not Assessed";
+            if (readinessStatsTextEl) readinessStatsTextEl.innerText = currentSubScoredCount > 0 ? `${currentSubScoredCount} chapter/subject results` : "Not Assessed";
 
-            totalAttemptsGlobal += getCentralMockAttempts().length;
+            const centralAttempts = getCentralMockAttempts();
+            totalAttemptsGlobal += centralAttempts.length;
+            centralAttempts.forEach(a => {
+                totalAttemptedGlobal += Number(a.attempted) || 0;
+                totalCorrectGlobal += Number(a.correct) || 0;
+                if (a.type === "subject" && a.subjectId === activeSubjectId) {
+                    currentSubTotalScoresSum += Number(a.scorePct) || 0;
+                    currentSubScoredCount++;
+                }
+            });
             const mockTestCountEl = document.getElementById("mockTestCount");
             if (mockTestCountEl) mockTestCountEl.innerText = totalAttemptsGlobal;
             const mockTestSubTextEl = document.getElementById("mockTestSubText");
