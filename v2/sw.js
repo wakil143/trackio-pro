@@ -1,4 +1,35 @@
-const CACHE_NAME = "trackio-pro-v2-shell-v6";
+importScripts("https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js");
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDSdF3f-vAOxlqh75yNC9MdvDJbEeg_F_c",
+  authDomain: "trackio-pro.firebaseapp.com",
+  projectId: "trackio-pro",
+  storageBucket: "trackio-pro.firebasestorage.app",
+  messagingSenderId: "212091683334",
+  appId: "1:212091683334:web:4c369422e1df94dbe63987"
+};
+
+try {
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  const messaging = firebase.messaging();
+  messaging.onBackgroundMessage((payload) => {
+    const data = payload.data || {};
+    const notification = payload.notification || {};
+    const title = notification.title || data.title || "Trackio PRO";
+    self.registration.showNotification(title, {
+      body: notification.body || data.body || "You have a revision reminder.",
+      icon: "../icon-192.png",
+      badge: "../icon-192.png",
+      tag: data.tag || "trackio-fcm-" + Date.now(),
+      data: { url: data.url || "./" }
+    });
+  });
+} catch (error) {
+  console.warn("FCM background messaging initialization failed:", error);
+}
+
+const CACHE_NAME = "trackio-pro-v2-shell-v7";
 const APP_SHELL = [
   "./",
   "./index.html",
