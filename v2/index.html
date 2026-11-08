@@ -4010,7 +4010,7 @@
         }
 
         async function shareSyllabusToGemini() {
-            const readyFiles = uploadedFilesList.filter(item => item && item.file && (item.status === "pending" || item.status === "error"));
+            const readyFiles = uploadedFilesList.filter(item => item && item.file);
             if (!readyFiles.length) {
                 showToast("Add at least one PDF or image before opening Gemini.", "warning");
                 return;
