@@ -118,10 +118,15 @@ async function sendDueEvent(uid, chapter, examName, subjectName, kind, dueAt, to
 
 async function main() {
   const usersSnapshot = await db.collection("users").get();
+  const testPush = process.env.TEST_PUSH === "true";
+  const testUid = (process.env.TEST_USER_UID || "").trim();
+  if (testPush && !testUid) throw new Error("Enter TEST_USER_UID when running a test push.");
   let sentEvents = 0;
+  let testDevices = 0;
 
   for (const userDoc of usersSnapshot.docs) {
     const uid = userDoc.id;
+    if (testPush && uid !== testUid) continue;
     const userData = userDoc.data() || {};
     const examsData = userData.examsData || {};
     const examsList = Array.isArray(userData.examsList) ? userData.examsList : [];
@@ -130,6 +135,27 @@ async function main() {
       .where("enabled", "==", true).get();
     const tokens = tokenSnapshot.docs.filter(doc => doc.data()?.token);
     if (tokens.length === 0) continue;
+
+    if (testPush) {
+      for (const tokenDoc of tokens) {
+        try {
+          await messaging.send({
+            token: tokenDoc.data().token,
+            data: {
+              title: "Trackio PRO Scheduler Test",
+              body: "Server-side FCM is connected. Automatic revision reminders are ready for due-date testing.",
+              url: "https://wakil143.github.io/trackio-pro/v2/",
+              tag: "trackio-scheduler-test"
+            },
+            webpush: { headers: { TTL: "300", Urgency: "high" } }
+          });
+          testDevices++;
+        } catch (error) {
+          console.error("Scheduler test push failed:", uid, tokenDoc.id, error.code || error.message);
+        }
+      }
+      continue;
+    }
 
     for (const [examId, exam] of Object.entries(examsData)) {
       if (!exam || !exam.appState) continue;
@@ -163,6 +189,12 @@ async function main() {
         }
       }
     }
+  }
+
+  if (testPush) {
+    if (testDevices === 0) throw new Error("No active FCM token accepted the scheduler test push for TEST_USER_UID.");
+    console.log(`Scheduler test push accepted by ${testDevices} device token(s). No reminder state was changed.`);
+    return;
   }
 
   console.log(`Reminder scan complete. Sent ${sentEvents} due event(s).`);
