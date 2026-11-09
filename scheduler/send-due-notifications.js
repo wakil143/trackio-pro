@@ -36,15 +36,18 @@ function formatDue(timestamp) {
   }).format(new Date(timestamp));
 }
 
-async function sendDueEvent(uid, chapter, examName, subjectName, kind, dueAt, tokens) {
-  if (!dueAt || dueAt > now) return false;
+async function sendDueEvent(uid, chapter, examName, subjectName, kind, dueAt, tokens, stats) {
+  if (!dueAt) { stats.invalidDueDates++; return false; }
+  stats.candidates++;
+  if (dueAt > now) { stats.notYetDue++; return false; }
+  stats.dueNow++;
 
   const id = eventId(uid, chapter.id || chapter.name || "chapter", kind, dueAt);
   const stateRef = db.collection("users").doc(uid)
     .collection("notificationDeliveries").doc(id);
 
   const alreadySent = await stateRef.get();
-  if (alreadySent.exists && alreadySent.data()?.sentAt) return false;
+  if (alreadySent.exists && alreadySent.data()?.sentAt) { stats.duplicatesSkipped++; return false; }
 
   const labels = {
     active_recall_2: {
@@ -100,6 +103,7 @@ async function sendDueEvent(uid, chapter, examName, subjectName, kind, dueAt, to
   }
 
   if (successCount > 0) {
+    stats.successfulDevices += successCount;
     await stateRef.set({
       kind,
       chapterId: chapter.id || "",
@@ -123,10 +127,20 @@ async function main() {
   if (testPush && !testUid) throw new Error("Enter TEST_USER_UID when running a test push.");
   let sentEvents = 0;
   let testDevices = 0;
+  const stats = {
+    usersScanned: 0, usersWithActiveTokens: 0, activeTokens: 0,
+    examsScanned: 0, subjectsScanned: 0, chaptersScanned: 0,
+    skippedMissingAppState: 0, skippedMissingChapters: 0,
+    skippedMissingStages: 0, skippedMissingStageTimestamps: 0,
+    missingRecall1Timestamp: 0, missingRecall2Timestamp: 0,
+    candidates: 0, dueNow: 0, notYetDue: 0, invalidDueDates: 0,
+    duplicatesSkipped: 0, successfulDevices: 0
+  };
 
   for (const userDoc of usersSnapshot.docs) {
     const uid = userDoc.id;
     if (testPush && uid !== testUid) continue;
+    stats.usersScanned++;
     const userData = userDoc.data() || {};
     const examsData = userData.examsData || {};
     const examsList = Array.isArray(userData.examsList) ? userData.examsList : [];
@@ -135,6 +149,8 @@ async function main() {
       .where("enabled", "==", true).get();
     const tokens = tokenSnapshot.docs.filter(doc => doc.data()?.token);
     if (tokens.length === 0) continue;
+    stats.usersWithActiveTokens++;
+    stats.activeTokens += tokens.length;
 
     if (testPush) {
       for (const tokenDoc of tokens) {
@@ -158,33 +174,39 @@ async function main() {
     }
 
     for (const [examId, exam] of Object.entries(examsData)) {
-      if (!exam || !exam.appState) continue;
+      stats.examsScanned++;
+      if (!exam || !exam.appState) { stats.skippedMissingAppState++; continue; }
       const examName = examsList.find(item => item.id === examId)?.name || "Exam";
 
       for (const subject of Object.values(exam.appState)) {
-        if (!subject || !Array.isArray(subject.chapters)) continue;
+        if (!subject || !Array.isArray(subject.chapters)) { stats.skippedMissingChapters++; continue; }
+        stats.subjectsScanned++;
         const subjectName = subject.name || "Subject";
 
         for (const chapter of subject.chapters) {
-          if (!chapter || !chapter.stages || !chapter.stageTimestamps) continue;
+          stats.chaptersScanned++;
+          if (!chapter || !chapter.stages) { stats.skippedMissingStages++; continue; }
+          if (!chapter.stageTimestamps) { stats.skippedMissingStageTimestamps++; continue; }
           const stages = chapter.stages;
           const times = chapter.stageTimestamps;
           const chapterId = chapter.id || chapter.name || "chapter";
+          if (stages.s_active_recall_check && !asMillis(times.s_active_recall_check)) stats.missingRecall1Timestamp++;
+          if (stages.s_active_recall_2 && !asMillis(times.s_active_recall_2)) stats.missingRecall2Timestamp++;
 
           if (stages.s_active_recall_check && !stages.s_active_recall_2) {
             const dueAt = asMillis(times.s_active_recall_check) + DAY;
-            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "active_recall_2", dueAt, tokens)) sentEvents++;
+            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "active_recall_2", dueAt, tokens, stats)) sentEvents++;
           }
 
           if (stages.s_active_recall_2 && !stages.s_active_recall_3) {
             const dueAt = asMillis(times.s_active_recall_2) + (3 * DAY);
-            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "active_recall_3", dueAt, tokens)) sentEvents++;
+            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "active_recall_3", dueAt, tokens, stats)) sentEvents++;
           }
 
           if (stages.s_active_recall_check) {
             const dueAt = asMillis(chapter.nextDueTimestamp) ||
               (asMillis(chapter.lastRevisedTimestamp) || asMillis(times.s_active_recall_check)) + (7 * DAY);
-            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "weekly_revision", dueAt, tokens)) sentEvents++;
+            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "weekly_revision", dueAt, tokens, stats)) sentEvents++;
           }
         }
       }
@@ -197,6 +219,7 @@ async function main() {
     return;
   }
 
+  console.log("Reminder scan diagnostics (aggregate only):", JSON.stringify({ ...stats, sentEvents }));
   console.log(`Reminder scan complete. Sent ${sentEvents} due event(s).`);
 }
 
