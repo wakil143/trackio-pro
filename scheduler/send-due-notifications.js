@@ -1,0 +1,174 @@
+const admin = require("firebase-admin");
+const crypto = require("node:crypto");
+
+const rawCredentials = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+if (!rawCredentials) throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON GitHub secret.");
+
+const serviceAccount = JSON.parse(rawCredentials);
+admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+
+const db = admin.firestore();
+const messaging = admin.messaging();
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+const now = Date.now();
+
+function asMillis(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value.toMillis === "function") return value.toMillis();
+  if (value && typeof value.seconds === "number") return value.seconds * 1000;
+  return 0;
+}
+
+function eventId(uid, chapterId, kind, dueAt) {
+  return crypto.createHash("sha256")
+    .update([uid, chapterId, kind, String(dueAt)].join("|"))
+    .digest("hex");
+}
+
+function formatDue(timestamp) {
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(timestamp));
+}
+
+async function sendDueEvent(uid, chapter, examName, subjectName, kind, dueAt, tokens) {
+  if (!dueAt || dueAt > now) return false;
+
+  const id = eventId(uid, chapter.id || chapter.name || "chapter", kind, dueAt);
+  const stateRef = db.collection("users").doc(uid)
+    .collection("notificationDeliveries").doc(id);
+
+  const alreadySent = await stateRef.get();
+  if (alreadySent.exists && alreadySent.data()?.sentAt) return false;
+
+  const labels = {
+    active_recall_2: {
+      title: "Trackio PRO • Active Recall 2 due",
+      body: `${chapter.name} — ${subjectName} (${examName}). Your second active recall is ready.`
+    },
+    active_recall_3: {
+      title: "Trackio PRO • Active Recall 3 due",
+      body: `${chapter.name} — ${subjectName} (${examName}). Your third active recall is ready.`
+    },
+    weekly_revision: {
+      title: "Trackio PRO • Weekly revision due",
+      body: `${chapter.name} — ${subjectName} (${examName}). Your spaced revision is due now.`
+    }
+  };
+  const message = labels[kind];
+  const tag = `trackio-${id.slice(0, 24)}`;
+  let successCount = 0;
+
+  for (const tokenDoc of tokens) {
+    const tokenData = tokenDoc.data() || {};
+    const token = tokenData.token;
+    if (!token || tokenData.enabled === false) continue;
+
+    try {
+      await messaging.send({
+        token,
+        data: {
+          title: message.title,
+          body: message.body,
+          url: "https://wakil143.github.io/trackio-pro/v2/",
+          tag,
+          kind,
+          dueAt: String(dueAt),
+          dueLabel: formatDue(dueAt)
+        },
+        webpush: {
+          headers: { TTL: "86400", Urgency: "high" }
+        }
+      });
+      successCount++;
+    } catch (error) {
+      const code = error && error.code;
+      console.error("FCM send failed:", uid, tokenDoc.id, code || error.message);
+      if (code === "messaging/registration-token-not-registered" ||
+          code === "messaging/invalid-registration-token") {
+        await tokenDoc.ref.set({
+          enabled: false,
+          disabledAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
+    }
+  }
+
+  if (successCount > 0) {
+    await stateRef.set({
+      kind,
+      chapterId: chapter.id || "",
+      chapterName: chapter.name || "Chapter",
+      examName,
+      subjectName,
+      dueAt,
+      sentAt: admin.firestore.FieldValue.serverTimestamp(),
+      successCount
+    });
+    console.log("SENT", kind, chapter.name, "to", successCount, "device(s)");
+    return true;
+  }
+  return false;
+}
+
+async function main() {
+  const usersSnapshot = await db.collection("users").get();
+  let sentEvents = 0;
+
+  for (const userDoc of usersSnapshot.docs) {
+    const uid = userDoc.id;
+    const userData = userDoc.data() || {};
+    const examsData = userData.examsData || {};
+    const examsList = Array.isArray(userData.examsList) ? userData.examsList : [];
+
+    const tokenSnapshot = await userDoc.ref.collection("fcmTokens")
+      .where("enabled", "==", true).get();
+    const tokens = tokenSnapshot.docs.filter(doc => doc.data()?.token);
+    if (tokens.length === 0) continue;
+
+    for (const [examId, exam] of Object.entries(examsData)) {
+      if (!exam || !exam.appState) continue;
+      const examName = examsList.find(item => item.id === examId)?.name || "Exam";
+
+      for (const subject of Object.values(exam.appState)) {
+        if (!subject || !Array.isArray(subject.chapters)) continue;
+        const subjectName = subject.name || "Subject";
+
+        for (const chapter of subject.chapters) {
+          if (!chapter || !chapter.stages || !chapter.stageTimestamps) continue;
+          const stages = chapter.stages;
+          const times = chapter.stageTimestamps;
+          const chapterId = chapter.id || chapter.name || "chapter";
+
+          if (stages.s_active_recall_check && !stages.s_active_recall_2) {
+            const dueAt = asMillis(times.s_active_recall_check) + DAY;
+            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "active_recall_2", dueAt, tokens)) sentEvents++;
+          }
+
+          if (stages.s_active_recall_2 && !stages.s_active_recall_3) {
+            const dueAt = asMillis(times.s_active_recall_2) + (3 * DAY);
+            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "active_recall_3", dueAt, tokens)) sentEvents++;
+          }
+
+          if (stages.s_active_recall_check) {
+            const dueAt = asMillis(chapter.nextDueTimestamp) ||
+              (asMillis(chapter.lastRevisedTimestamp) || asMillis(times.s_active_recall_check)) + (7 * DAY);
+            if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "weekly_revision", dueAt, tokens)) sentEvents++;
+          }
+        }
+      }
+    }
+  }
+
+  console.log(`Reminder scan complete. Sent ${sentEvents} due event(s).`);
+}
+
+main().then(() => process.exit(0)).catch(error => {
+  console.error("Reminder scheduler failed:", error);
+  process.exit(1);
+});
