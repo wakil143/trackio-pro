@@ -1,0 +1,36 @@
+name: Trackio PRO Revision Reminders
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trackio-pro-revision-reminders
+  cancel-in-progress: false
+
+jobs:
+  send-due-reminders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install scheduler dependencies
+        working-directory: scheduler
+        run: npm install --omit=dev
+
+      - name: Send due recall and revision notifications
+        working-directory: scheduler
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: npm start
