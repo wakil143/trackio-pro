@@ -91,7 +91,7 @@ async function sendDueEvent(uid, chapter, examName, subjectName, kind, dueAt, to
       successCount++;
     } catch (error) {
       const code = error && error.code;
-      console.error("FCM send failed:", uid, tokenDoc.id, code || error.message);
+      console.error("FCM send failed:", code || "unknown-error");
       if (code === "messaging/registration-token-not-registered" ||
           code === "messaging/invalid-registration-token") {
         await tokenDoc.ref.set({
