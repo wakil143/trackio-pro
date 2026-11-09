@@ -1,0 +1,13 @@
+{
+  "name": "trackio-pro-reminder-scheduler",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scheduled Firebase Cloud Messaging reminders for Trackio PRO",
+  "main": "send-due-notifications.js",
+  "scripts": {
+    "start": "node send-due-notifications.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2"
+  }
+}
