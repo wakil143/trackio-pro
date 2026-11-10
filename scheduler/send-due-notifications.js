@@ -50,6 +50,10 @@ async function sendDueEvent(uid, chapter, examName, subjectName, kind, dueAt, to
   if (alreadySent.exists && alreadySent.data()?.sentAt) { stats.duplicatesSkipped++; return false; }
 
   const labels = {
+    active_recall_1: {
+      title: "Trackio PRO • Active Recall 1 ready",
+      body: `${chapter.name} — ${subjectName} (${examName}). Your first active recall is ready. Open the chapter and complete it.`
+    },
     active_recall_2: {
       title: "Trackio PRO • Active Recall 2 due",
       body: `${chapter.name} — ${subjectName} (${examName}). Your second active recall is ready.`
@@ -132,7 +136,7 @@ async function main() {
     examsScanned: 0, subjectsScanned: 0, chaptersScanned: 0,
     skippedMissingAppState: 0, skippedMissingChapters: 0,
     skippedMissingStages: 0, skippedMissingStageTimestamps: 0,
-    missingRecall1Timestamp: 0, missingRecall2Timestamp: 0,
+    missingWorkflowTimestamp: 0, missingRecall1Timestamp: 0, missingRecall2Timestamp: 0,
     candidates: 0, dueNow: 0, notYetDue: 0, invalidDueDates: 0,
     duplicatesSkipped: 0, successfulDevices: 0
   };
@@ -192,6 +196,22 @@ async function main() {
           const chapterId = chapter.id || chapter.name || "chapter";
           if (stages.s_active_recall_check && !asMillis(times.s_active_recall_check)) stats.missingRecall1Timestamp++;
           if (stages.s_active_recall_2 && !asMillis(times.s_active_recall_2)) stats.missingRecall2Timestamp++;
+
+          // Active Recall 1 becomes ready as soon as the first three workflow stages are complete.
+          if (stages.s_dual_source && stages.s_master_notes && stages.s_pyq_practice &&
+              !stages.s_active_recall_check) {
+            const workflowTimes = [
+              asMillis(times.s_dual_source),
+              asMillis(times.s_master_notes),
+              asMillis(times.s_pyq_practice)
+            ];
+            if (workflowTimes.every(Boolean)) {
+              const dueAt = Math.max(...workflowTimes);
+              if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "active_recall_1", dueAt, tokens, stats)) sentEvents++;
+            } else {
+              stats.missingWorkflowTimestamp++;
+            }
+          }
 
           if (stages.s_active_recall_check && !stages.s_active_recall_2) {
             const dueAt = asMillis(times.s_active_recall_check) + DAY;
