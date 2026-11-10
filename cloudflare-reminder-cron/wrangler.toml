@@ -1,0 +1,12 @@
+name = "trackio-pro-reminder-cron"
+main = "src/index.js"
+compatibility_date = "2026-11-11"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+GITHUB_OWNER = "wakil143"
+GITHUB_REPO = "trackio-pro"
+GITHUB_WORKFLOW = "revision-reminders.yml"
+GITHUB_REF = "main"
