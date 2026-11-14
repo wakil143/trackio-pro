@@ -206,7 +206,9 @@ async function main() {
               asMillis(times.s_pyq_practice)
             ];
             if (workflowTimes.every(Boolean)) {
-              const dueAt = Math.max(...workflowTimes);
+              // Match the app: Active Recall 1 unlocks 15 minutes after Master Notes completion.
+              // The scheduler sends only when this exact unlock time has arrived.
+              const dueAt = asMillis(times.s_master_notes) + (15 * 60 * 1000);
               if (await sendDueEvent(uid, { ...chapter, id: chapterId }, examName, subjectName, "active_recall_1", dueAt, tokens, stats)) sentEvents++;
             } else {
               stats.missingWorkflowTimestamp++;
