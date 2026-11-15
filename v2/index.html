@@ -850,11 +850,11 @@
                     </div>
                 </div>
 
-                <!-- Notification permission and in-app test -->
+                <!-- Real revision notification permission and FCM device registration -->
                 <div class="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-2">
                     <div class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-bell text-amber-500"></i> Revision Notifications</div>
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Android 17 needs notifications allowed for Trackio PRO and for the website in Chrome Site settings. If permission was blocked earlier, change both settings and reopen the app. Test alerts work while Trackio is active; background alerts need push-server setup.</p>
-                    <button type="button" onclick="sendTestNotification()" class="min-h-[42px] px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl">Enable & Test Notification</button>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Allow notifications for Trackio PRO and this website in Chrome Site settings. This enables real scheduled revision reminders; no test notification will be sent.</p>
+                    <button type="button" onclick="enableRevisionNotifications()" class="min-h-[42px] px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl">Enable Revision Notifications</button>
                 </div>
 
                 <!-- Section 2: Theme Appearance -->
@@ -1508,6 +1508,7 @@
                         activeSubjectId: activeSubjectId
                     };
                 }
+                sanitizeSampleData();
                 if (cloudData.stages) STAGES = cloudData.stages;
                 if (cloudData.streakData) streakData = cloudData.streakData;
                 if (cloudData.studySessionsLog) studySessionsLog = cloudData.studySessionsLog;
@@ -1557,10 +1558,65 @@
             });
         }
 
-        // Universal Initial Blank Starter Template
-        const DEFAULT_SUBJECTS = [
-            { id: "sample_sub", name: "Sample Subject (e.g. Physics / History)", icon: "fa-book-bookmark", chapters: ["Sample Chapter 1: Introduction & Basics", "Sample Chapter 2: Key Theorems & Formulas", "Sample Chapter 3: Practice & Applications"] }
-        ];
+        // New installations start with an empty syllabus. No demo subjects or chapters are seeded.
+        const DEFAULT_SUBJECTS = [];
+
+        // Remove only the app's known demo records; preserve all genuine user-created data.
+        function sanitizeSampleData() {
+            const sampleChapterNames = new Set([
+                "sample chapter 1: introduction & basics",
+                "sample chapter 2: key theorems & formulas",
+                "sample chapter 3: practice & applications"
+            ]);
+            const cleanState = (state) => {
+                const next = state && typeof state === "object" ? state : {};
+                Object.keys(next).forEach(subjectId => {
+                    const subject = next[subjectId];
+                    if (!subject || typeof subject !== "object") { delete next[subjectId]; return; }
+                    subject.chapters = (Array.isArray(subject.chapters) ? subject.chapters : []).filter(chapter =>
+                        !sampleChapterNames.has(String(chapter && chapter.name || "").trim().toLowerCase())
+                    );
+                    const isKnownDemoSubject = subjectId === "sample_sub" ||
+                        String(subject.name || "").trim().toLowerCase() === "sample subject (e.g. physics / history)";
+                    if (isKnownDemoSubject && subject.chapters.length === 0) delete next[subjectId];
+                });
+                return next;
+            };
+
+            examsData = examsData && typeof examsData === "object" ? examsData : {};
+            Object.keys(examsData).forEach(examId => {
+                const bucket = examsData[examId];
+                if (!bucket || typeof bucket !== "object") { delete examsData[examId]; return; }
+                bucket.appState = cleanState(bucket.appState || {});
+                bucket.subjectOrder = (Array.isArray(bucket.subjectOrder) ? bucket.subjectOrder : Object.keys(bucket.appState))
+                    .filter(id => !!bucket.appState[id]);
+                if (!bucket.activeSubjectId || !bucket.appState[bucket.activeSubjectId]) {
+                    bucket.activeSubjectId = bucket.subjectOrder[0] || "";
+                }
+            });
+
+            examsList = (Array.isArray(examsList) ? examsList : []).filter(exam => {
+                if (!exam || !exam.id) return false;
+                const isSampleExam = String(exam.name || "").trim().toLowerCase() === "sample exam";
+                const bucket = examsData[exam.id];
+                const hasRealSubjects = bucket && Object.keys(bucket.appState || {}).length > 0;
+                if (isSampleExam && !hasRealSubjects) { delete examsData[exam.id]; return false; }
+                return true;
+            });
+
+            if (activeExamId && examsData[activeExamId]) {
+                appState = cleanState(appState || examsData[activeExamId].appState || {});
+                subjectOrder = (Array.isArray(subjectOrder) ? subjectOrder : Object.keys(appState)).filter(id => !!appState[id]);
+                if (!activeSubjectId || !appState[activeSubjectId]) activeSubjectId = subjectOrder[0] || "";
+                examsData[activeExamId].appState = appState;
+                examsData[activeExamId].subjectOrder = subjectOrder;
+                examsData[activeExamId].activeSubjectId = activeSubjectId;
+            } else {
+                appState = cleanState(appState || {});
+                subjectOrder = (Array.isArray(subjectOrder) ? subjectOrder : Object.keys(appState)).filter(id => !!appState[id]);
+                if (!activeSubjectId || !appState[activeSubjectId]) activeSubjectId = subjectOrder[0] || "";
+            }
+        }
 
         const HIGH_YIELD_KEYWORDS = ["Basic", "Fundamental", "Important", "High-Yield", "Core", "Theorem"];
 
@@ -1789,11 +1845,11 @@
                     ? await Notification.requestPermission()
                     : Notification.permission;
                 if (permission === "granted") {
-                    showToast("Trackio PRO notifications are allowed. Sending a test alert…", "success");
+                    showToast("Trackio PRO notifications are allowed. Registering this device for revision reminders…", "success");
                 } else if (permission === "denied") {
                     showToast("Notifications are blocked. Android 17: allow Trackio PRO in Settings > Apps > Trackio PRO > Notifications, AND allow wakil143.github.io in Chrome > Settings > Site settings > Notifications. Then reopen Trackio PRO.", "warning");
                 } else {
-                    showToast("Notification permission was not granted. Tap Enable & Test again and allow the prompt.", "warning");
+                    showToast("Notification permission was not granted. Allow notifications in your browser and device settings, then try again.", "warning");
                 }
                 return permission;
             } catch (e) {
@@ -1840,22 +1896,19 @@
             } catch (e) {
                 console.warn("System notification could not be shown:", e);
             }
-            if (showInAppToast) {
-                showToast(delivered ? "Test notification sent successfully." : "Notification could not be delivered. Check Android and browser notification permissions.", delivered ? "success" : "warning");
-            }
             return delivered;
         }
 
-        async function sendTestNotification() {
+        async function enableRevisionNotifications() {
             const permission = await requestNotificationPermission();
             if (permission !== "granted") return;
             try {
                 await registerFCMDevice();
-                showToast("FCM push registration successful for this device.", "success");
-                await triggerSystemNotification("Trackio PRO Test", "Local notification test passed; FCM token is registered.", true);
+                showToast("This device is registered for real revision reminders.", "success");
+                checkRevisionReminders();
             } catch (e) {
                 console.error("FCM registration failed:", e);
-                showToast("FCM registration failed: " + (e.message || e), "error");
+                showToast("Could not register this device for revision reminders: " + (e.message || e), "error");
             }
         }
 
@@ -2495,8 +2548,14 @@
                 localStorage.setItem(EXAMS_DATA_KEY, JSON.stringify(examsData));
             }
 
-            // Run backwards-compatible migration over all chapters and subjects
+            // Run backwards-compatible migration, then remove legacy demo-only records.
             migrateAllChapterRecords();
+            sanitizeSampleData();
+            localStorage.setItem(EXAMS_LIST_KEY, JSON.stringify(examsList));
+            localStorage.setItem(EXAMS_DATA_KEY, JSON.stringify(examsData));
+            localStorage.setItem(ACTIVE_EXAM_KEY, activeExamId || "");
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+            localStorage.setItem(ORDER_KEY, JSON.stringify(subjectOrder));
         }
 
         function migrateAllChapterRecords() {
@@ -2769,7 +2828,8 @@
                         <label class="text-[10px] text-slate-500">Total questions<input id="centralMockTotal" type="number" min="1" value="100" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
                         <label class="text-[10px] text-slate-500">Marks / question<input id="centralMockMarks" type="number" min="0.01" step="0.01" value="1" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
                         <label class="text-[10px] text-slate-500">Negative fraction (e.g. 0.3333)<input id="centralMockNegative" type="number" min="0" step="0.0001" value="0.3333" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
-                        <label class="text-[10px] text-slate-500">Duration (minutes)<input id="centralMockDuration" type="number" min="1" value="90" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
+                        <label class="text-[10px] text-slate-500">Test limit (minutes)<input id="centralMockDuration" type="number" min="1" value="90" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
+                        <label class="text-[10px] text-slate-500">Time taken (HH:MM:SS)<input id="centralMockTimeTaken" type="time" step="1" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
                         <label class="text-[10px] text-slate-500">Attempted<input id="centralMockAttempted" type="number" min="0" value="0" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
                         <label class="text-[10px] text-slate-500">Correct<input id="centralMockCorrect" type="number" min="0" value="0" class="mt-1 w-full p-2 rounded-lg border bg-white dark:bg-slate-800 text-xs"></label>
                     </div>
@@ -2782,7 +2842,8 @@
                         <div class="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 flex justify-between gap-2">
                             <div class="min-w-0"><div class="text-xs font-bold">${escapeHtml(a.type === "full" ? "Full Mock Test" : (a.subjectName || "Subject Test"))}</div>
                             <div class="text-[10px] text-slate-500">${escapeHtml(a.patternLabel)} • ${escapeHtml(a.dateStr)}</div>
-                            <div class="text-[10px] text-slate-500">Attempted ${a.attempted} • Correct ${a.correct} • Incorrect ${a.incorrect} • Unattempted ${a.unattempted}</div></div>
+                            <div class="text-[10px] text-slate-500">Attempted ${a.attempted} • Correct ${a.correct} • Incorrect ${a.incorrect} • Unattempted ${a.unattempted}</div>
+                            <div class="text-[10px] text-sky-600 dark:text-sky-400 font-semibold">Time taken: ${a.timeTakenSeconds == null ? "Not recorded" : formatMockTimeTaken(a.timeTakenSeconds)}</div></div>
                             <div class="text-right shrink-0"><div class="text-sm font-black">${a.scorePct}%</div><div class="text-[10px] text-slate-500">${a.marksObtained}/${a.maxMarks}</div>
                             <button onclick="deleteCentralMockAttempt('${a.id}')" class="text-[10px] text-rose-500 font-bold mt-1">Delete</button></div>
                         </div>`).join("") : '<p class="text-xs text-slate-400 italic">No subject/full mock attempts recorded yet.</p>'}
@@ -2808,14 +2869,30 @@
                 }
             }
         }
+        function formatMockTimeTaken(totalSeconds) {
+            const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const remainder = seconds % 60;
+            return [hours, minutes, remainder].map(value => String(value).padStart(2, "0")).join(":");
+        }
+
+        function parseMockTimeTaken(value) {
+            if (!value) return null;
+            const match = String(value).trim().match(/^(\\d{1,2}):([0-5]\\d)(?::([0-5]\\d))?$/);
+            if (!match) return NaN;
+            return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
+        }
+
         function saveCentralMockAttempt() {
             const num = id => Number(document.getElementById(id)?.value);
             const type = document.getElementById("centralMockType")?.value || "full";
             const total=num("centralMockTotal"), marks=num("centralMockMarks"), neg=num("centralMockNegative");
             const duration=num("centralMockDuration"), attempted=num("centralMockAttempted"), correct=num("centralMockCorrect");
+            const timeTakenSeconds = parseMockTimeTaken(document.getElementById("centralMockTimeTaken")?.value || "");
             const subId=document.getElementById("centralMockSubject")?.value || "";
-            if (![total,marks,neg,duration,attempted,correct].every(Number.isFinite) || total<1 || marks<=0 || neg<0 || duration<1 || attempted<0 || attempted>total || correct<0 || correct>attempted) {
-                showToast("Check values: 0 ≤ correct ≤ attempted ≤ total, marks/duration must be positive.", "warning"); return;
+            if (![total,marks,neg,duration,attempted,correct].every(Number.isFinite) || (Number.isNaN(timeTakenSeconds)) || total<1 || marks<=0 || neg<0 || duration<1 || attempted<0 || attempted>total || correct<0 || correct>attempted || (timeTakenSeconds !== null && timeTakenSeconds <= 0)) {
+                showToast("Check values: 0 ≤ correct ≤ attempted ≤ total; test limit and entered time must be valid and positive.", "warning"); return;
             }
             if (type==="subject" && !subId) { showToast("Add/select a subject before saving a subject test.", "warning"); return; }
             const patternKey=document.getElementById("centralMockPattern")?.value || "custom";
@@ -2825,7 +2902,7 @@
             const incorrect=attempted-correct, unattempted=total-attempted, maxMarks=total*marks;
             const obtained=Math.max(0,Math.min(maxMarks,correct*marks-incorrect*marks*neg));
             const sub=appState[subId]; const now=Date.now();
-            const record={id:"mock_"+now+"_"+Math.random().toString(36).slice(2,8),timestamp:now,dateStr:new Date(now).toLocaleString(),type,subjectId:type==="subject"?subId:null,subjectName:type==="subject"?(sub?.name||"Subject"):"",patternKey,patternLabel:MOCK_TEST_PATTERNS[patternKey]?.label||"Custom",totalQuestions:total,marksPerQuestion:marks,negativeFraction:neg,durationMinutes:duration,attempted,correct,incorrect,unattempted,marksObtained:Math.round(obtained*100)/100,maxMarks,scorePct:Math.round(obtained/maxMarks*1000)/10,accuracyPct:attempted?Math.round(correct/attempted*1000)/10:null};
+            const record={id:"mock_"+now+"_"+Math.random().toString(36).slice(2,8),timestamp:now,dateStr:new Date(now).toLocaleString(),type,subjectId:type==="subject"?subId:null,subjectName:type==="subject"?(sub?.name||"Subject"):"",patternKey,patternLabel:MOCK_TEST_PATTERNS[patternKey]?.label||"Custom",totalQuestions:total,marksPerQuestion:marks,negativeFraction:neg,durationMinutes:duration,timeTakenSeconds,attempted,correct,incorrect,unattempted,marksObtained:Math.round(obtained*100)/100,maxMarks,scorePct:Math.round(obtained/maxMarks*1000)/10,accuracyPct:attempted?Math.round(correct/attempted*1000)/10:null};
             const records=getCentralMockAttempts(); records.push(record); saveCentralMockAttempts(records);
             saveState(); openDashboardDetailModal("mock_tests"); showToast("Mock test result saved.", "success");
         }
@@ -6469,7 +6546,7 @@
             const chapCount = curSub && curSub.chapters ? curSub.chapters.length : 0;
 
             container.innerHTML = `
-                <button type="button" onclick="openManageExamsModal()" class="hover:text-sky-600 dark:hover:text-sky-400 font-bold transition-colors flex items-center gap-1 cursor-pointer truncate max-w-[130px] sm:max-w-[190px]" title="Exam: ${escapeHtml(examName)} (Click to manage exams)">
+                <button type="button" onclick="scrollToTop()" class="hover:text-sky-600 dark:hover:text-sky-400 font-bold transition-colors flex items-center gap-1 cursor-pointer truncate max-w-[130px] sm:max-w-[190px]" title="Go to exam dashboard: ${escapeHtml(examName)}">
                     <i class="fa-solid fa-graduation-cap text-amber-500 text-xs"></i>
                     <span class="truncate">${escapeHtml(examName)}</span>
                 </button>
@@ -7703,6 +7780,7 @@
                         }
 
                         migrateAllChapterRecords();
+                        sanitizeSampleData();
                         saveState();
                         renderExamTabs();
                         renderWorkflowLegend();
